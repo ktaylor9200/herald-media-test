@@ -691,6 +691,7 @@ internal fun ChatView(
                             LocalMediaLoader provides actions::loadMedia,
                             LocalOpenImage provides onViewImage,
                             LocalFileLinks provides { link -> GatewayFile.fromLink(link)?.let(onOpenFile) },
+                            LocalOpenFile provides onOpenFile,
                             LocalNotice provides onNotice,
                             LocalSubagents provides SubagentContext(state.subagents, actions::stopSubagent),
                             LocalCommentHost provides commentHost,

@@ -176,13 +176,23 @@ enum class GatewayFileKind(val label: String) {
     Text("Text"),
     Image("Picture"),
 
+    /** A page the agent made: drawn in a sandboxed web view, or shown as its source. */
+    Html("Web page"),
+
     /** Pages drawn from the whole file, not the gateway's text preview. */
     Pdf("PDF"),
+
+    /** Played in the app from the whole file. */
+    Audio("Audio"),
+    Video("Video"),
     Other("File"),
     ;
 
     /** Shown in the file viewer at all; the rest go straight to a card with Save and Share. */
     val previewable: Boolean get() = this != Image && this != Other
+
+    /** Fetched whole for the viewer (`/api/fs/download`), not read through the gateway's text preview. */
+    val fetchedWhole: Boolean get() = this == Pdf || this == Audio || this == Video
 
     companion object {
         fun of(name: String): GatewayFileKind {
@@ -193,7 +203,10 @@ enum class GatewayFileKind(val label: String) {
                 ext in JSON -> Json
                 ext in TABLE -> Table
                 ext in IMAGE -> Image
+                ext in HTML -> Html
                 ext == "pdf" -> Pdf
+                ext in AUDIO -> Audio
+                ext in VIDEO -> Video
                 ext in CODE || lower in CODE_NAMES -> Code
                 ext in TEXT || ext.isEmpty() || lower.startsWith(".") -> Text
                 ext in BINARY -> Other
@@ -210,17 +223,22 @@ enum class GatewayFileKind(val label: String) {
         // strips only; anything else gets the same message), and SVG is shown as code.
         private val IMAGE = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif", "ico", "tif", "tiff")
         private val TEXT = setOf("txt", "log", "text", "out", "err", "rst", "adoc", "org", "env", "lock", "jsonl", "ndjson")
+        private val HTML = setOf("html", "htm", "xhtml")
+
+        // What Android's MediaPlayer plays; anything it can't still opens in another app from the viewer.
+        private val AUDIO = setOf("mp3", "wav", "ogg", "oga", "opus", "flac", "m4a", "aac", "amr", "mid", "midi")
+        private val VIDEO = setOf("mp4", "m4v", "webm", "mkv", "3gp", "mov")
         private val CODE = setOf(
             "kt", "kts", "java", "py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "go", "rs", "rb", "php", "c", "h", "cc", "cpp",
-            "hpp", "cs", "swift", "m", "scala", "lua", "r", "pl", "sh", "bash", "zsh", "fish", "ps1", "sql", "html", "htm",
+            "hpp", "cs", "swift", "m", "scala", "lua", "r", "pl", "sh", "bash", "zsh", "fish", "ps1", "sql",
             "css", "scss", "less", "vue", "svelte", "xml", "svg", "yaml", "yml", "toml", "ini", "cfg", "conf", "properties",
             "gradle", "dart", "ex", "exs", "hs", "zig", "nim", "tf", "proto", "graphql", "diff", "patch",
         )
         internal val CODE_NAMES = setOf("dockerfile", "makefile", "justfile", "procfile", "gemfile", "rakefile")
         private val BINARY = setOf(
             "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "tar", "apk", "aab", "jar", "exe", "dll", "so", "dylib", "bin",
-            "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub", "mp3", "wav", "ogg", "opus", "flac", "m4a",
-            "aac", "mp4", "mov", "mkv", "webm", "avi", "psd", "ttf", "otf", "woff", "woff2", "sqlite", "db",
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub", "avi", "wmv", "psd", "ttf", "otf",
+            "woff", "woff2", "sqlite", "db",
         )
     }
 }

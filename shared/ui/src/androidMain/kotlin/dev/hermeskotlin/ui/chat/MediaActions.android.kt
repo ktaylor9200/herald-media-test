@@ -1,8 +1,10 @@
 package dev.hermeskotlin.ui.chat
 
+import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -56,15 +58,36 @@ private class AndroidMediaActions(private val context: Context) : MediaActions {
     }
 
     override fun share(bytes: ByteArray, name: String) {
-        // A fresh folder per share keeps the original file name, which the receiving app shows.
-        val dir = File(context.cacheDir, "$SHARE_DIR/${System.currentTimeMillis()}").apply { mkdirs() }
-        val file = File(dir, name.replace('/', '_')).apply { writeBytes(bytes) }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.attachments", file)
+        val uri = handOver(bytes, name)
         val send = Intent(Intent.ACTION_SEND)
             .setType(mimeTypeOf(name))
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    override suspend fun open(bytes: ByteArray, name: String): String? {
+        val uri = withContext(Dispatchers.IO) { handOver(bytes, name) }
+        // Android's own table first, as for Save: a viewer is picked by type, and a wrong one finds no app.
+        val ext = name.substringAfterLast('.', "").lowercase()
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: mimeTypeOf(name)
+        val view = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, mime)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            context.startActivity(view)
+            null
+        } catch (_: ActivityNotFoundException) {
+            "No app on this phone opens ${ext.uppercase().ifEmpty { "these" }} files. Share it instead."
+        }
+    }
+
+    /** The file in the app's share folder, as a content URI another app may read. */
+    private fun handOver(bytes: ByteArray, name: String): Uri {
+        // A fresh folder per hand-over keeps the original file name, which the receiving app shows.
+        val dir = File(context.cacheDir, "$SHARE_DIR/${System.currentTimeMillis()}").apply { mkdirs() }
+        val file = File(dir, name.replace('/', '_')).apply { writeBytes(bytes) }
+        return FileProvider.getUriForFile(context, "${context.packageName}.attachments", file)
     }
 
     private companion object {

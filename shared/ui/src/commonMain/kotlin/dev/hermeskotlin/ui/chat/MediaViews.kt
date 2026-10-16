@@ -60,6 +60,8 @@ import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.chat.ReplyMedia
+import dev.hermeskotlin.core.media.GatewayFile
+import dev.hermeskotlin.core.media.GatewayFileKind
 import dev.hermeskotlin.designsystem.bodySmall
 import dev.hermeskotlin.designsystem.caption
 import dev.hermeskotlin.designsystem.colors
@@ -83,6 +85,9 @@ internal val LocalMediaLoader = staticCompositionLocalOf<suspend (String) -> Byt
 
 /** Opens the full-screen viewer for a picture. */
 internal val LocalOpenImage = staticCompositionLocalOf<(ViewerImage) -> Unit> { {} }
+
+/** Opens a file on the gateway in the file viewer; null where there's no viewer to open (a preview). */
+internal val LocalOpenFile = staticCompositionLocalOf<((GatewayFile) -> Unit)?> { null }
 
 /**
  * What the viewer shows: bytes already at hand, a source to load them from, or its own [fetch] (a picture a
@@ -187,15 +192,22 @@ internal fun webHost(source: String): String? {
     return source.substringAfter("://").substringBefore('/').substringBefore('?').substringBefore('#').substringAfterLast('@').ifEmpty { null } ?: "the web"
 }
 
-/** A delivered file: its name, with Save and Share. */
+/**
+ * A delivered file: its name and type, with Save and Share. One on the gateway opens in the file viewer
+ * when tapped: a page drawn, a recording played, a document read, without saving it first.
+ */
 @Composable
 private fun ReplyFile(item: ReplyMedia) {
     val load = LocalMediaLoader.current
     val actions = rememberMediaActions()
     val notify = LocalNotice.current
+    val openFile = LocalOpenFile.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    val file = remember(item.source) { GatewayFile(item.gatewayPath).takeIf { item.onGateway } }
+    val kind = file?.kind
+    val open: (() -> Unit)? = if (file != null && openFile != null) ({ openFile(file) }) else null
 
     fun withBytes(action: suspend (ByteArray) -> Unit) {
         if (busy) return
@@ -214,14 +226,22 @@ private fun ReplyFile(item: ReplyMedia) {
             .clip(shape)
             .border(1.dp, Theme[colors][stroke], shape)
             .background(Theme[colors][surface])
+            .clickable(enabled = open != null, onClickLabel = "Open ${item.name}") { open?.invoke() }
             .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        UnstyledIcon(Lucide.File, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(22.dp))
+        UnstyledIcon(kind?.let(::kindIcon) ?: Lucide.File, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f)) {
             Text(item.name, style = Theme[typography][label], color = Theme[colors][textColor], maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(item.name.substringAfterLast('.', "file").uppercase(), style = Theme[typography][caption], color = Theme[colors][textTertiary])
+            Text(
+                listOfNotNull(
+                    item.name.substringAfterLast('.', "file").uppercase(),
+                    kind?.takeIf { it.previewable && open != null }?.let { if (it == GatewayFileKind.Audio || it == GatewayFileKind.Video) "Tap to play" else "Tap to open" },
+                ).joinToString(" · "),
+                style = Theme[typography][caption],
+                color = Theme[colors][textTertiary],
+            )
         }
         if (busy) {
             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Spinner(Modifier.size(18.dp)) }
