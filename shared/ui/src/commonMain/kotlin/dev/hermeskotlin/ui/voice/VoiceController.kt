@@ -79,6 +79,12 @@ data class DictationState(
 }
 
 /**
+ * A reply being read aloud from its speaker button: which one, and whether its first words are still being
+ * voiced by the gateway ([preparing]) or already playing.
+ */
+data class ReadAloud(val key: String, val preparing: Boolean = true, internal val id: Long = 0)
+
+/**
  * Voice on this device, Desktop's way: the phone records, the gateway transcribes with the profile's
  * speech-to-text and voices replies with its text-to-speech, and the phone plays them.
  *
@@ -109,6 +115,13 @@ class VoiceController(
     private val _dictation = MutableStateFlow(DictationState())
     val dictation: StateFlow<DictationState> = _dictation.asStateFlow()
 
+    private val _reading = MutableStateFlow<ReadAloud?>(null)
+
+    /** The reply being read aloud from its speaker button, if one is. */
+    val reading: StateFlow<ReadAloud?> = _reading.asStateFlow()
+    private var readJob: Job? = null
+    private var readCount = 0L
+
     private var chatJob: Job? = null
     private var stoppedByUser = false
     private var speechJob: Job? = null
@@ -128,6 +141,7 @@ class VoiceController(
     fun startChat(session: ChatSession, gateway: GatewayUrl, profile: String?, pauseMs: Long = VoiceActivity().silenceMs) {
         if (chatJob?.isActive == true) return
         cancelDictation()
+        stopReading()
         _chat.value = VoiceChatState(VoicePhase.Listening)
         stoppedByUser = false
         noSpeechStream = null
@@ -471,6 +485,58 @@ class VoiceController(
     }
 
     /**
+     * Reads reply [key] aloud, as a voice chat would: [markdown] made speakable, voiced piece by piece with the
+     * profile's text-to-speech and played on the phone. Tapped again while it reads, it stops; another reply
+     * takes over from this one. Not while a voice chat has the speaker. [onError] hears what went wrong.
+     */
+    fun readAloud(key: String, markdown: String, gateway: GatewayUrl, profile: String?, onError: (String) -> Unit) {
+        val again = _reading.value?.key == key
+        stopReading()
+        if (again || _chat.value.phase != VoicePhase.Off) return
+        val text = speakableText(markdown)
+        if (text.isBlank()) return onError("There's nothing in this reply to read aloud.")
+        val id = ++readCount
+        _reading.value = ReadAloud(key, preparing = true, id = id)
+        readJob = scope.launch {
+            try {
+                coroutineScope {
+                    val clips = Channel<SpokenAudio>(capacity = 1)
+                    launch {
+                        for (chunk in speechChunks(text)) {
+                            when (val result = audio.speak(gateway, chunk, profile)) {
+                                is ApiResult.Success -> clips.send(result.value)
+                                else -> {
+                                    onError(result.errorMessage?.let(::briefError) ?: "Couldn't voice the reply.")
+                                    break
+                                }
+                            }
+                        }
+                        clips.close()
+                    }
+                    for (clip in clips) {
+                        _reading.update { if (it?.id == id) it.copy(preparing = false) else it }
+                        player.play(clip)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onError(e.message ?: "Couldn't play the reply.")
+            } finally {
+                // Only this reading's state: a reply tapped since has its own.
+                _reading.update { if (it?.id == id) null else it }
+            }
+        }
+    }
+
+    /** Stops reading a reply aloud. */
+    fun stopReading() {
+        readJob?.cancel()
+        readJob = null
+        _reading.value = null
+    }
+
+    /**
      * Starts dictating; the transcript goes to [onText]. Call [finishDictation] to stop early. With
      * [DictationEngine.Device] and a recognizer on this device, the phone writes it down and [onPartial]
      * gets the words so far as they are said; otherwise the gateway transcribes the recording.
@@ -557,6 +623,7 @@ class VoiceController(
     fun stopAll() {
         stopChat()
         cancelDictation()
+        stopReading()
     }
 
     private companion object {

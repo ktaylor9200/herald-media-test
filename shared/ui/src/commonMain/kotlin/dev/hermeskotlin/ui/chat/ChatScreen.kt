@@ -182,6 +182,7 @@ import com.composables.icons.lucide.RotateCw
 import com.composables.icons.lucide.SearchCheck
 import com.composables.icons.lucide.TriangleAlert
 import com.composables.icons.lucide.Users
+import com.composables.icons.lucide.Volume2
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
 import com.composables.icons.lucide.Square
@@ -239,6 +240,7 @@ import dev.hermeskotlin.ui.pet.PetSheet
 import dev.hermeskotlin.ui.pet.PetView
 import dev.hermeskotlin.ui.pet.rememberPetState
 import dev.hermeskotlin.ui.voice.DictationState
+import dev.hermeskotlin.ui.voice.ReadAloud
 import dev.hermeskotlin.ui.voice.VoiceChatState
 import dev.hermeskotlin.ui.voice.VoicePanel
 import dev.hermeskotlin.ui.voice.VoicePhase
@@ -393,6 +395,7 @@ fun ChatScreen(
                 is ChatRequest.OpenChat -> onOpenChat(request.storedSessionId, request.title)
                 is ChatRequest.SwitchProfile -> onSwitchProfile(request.profile)
                 ChatRequest.OpenPets -> petsOpen = true
+                is ChatRequest.Notice -> notice = request.text
                 ChatRequest.OpenJourney -> journeyOpen = true
                 ChatRequest.OpenUsage -> usageOpen = true
                 ChatRequest.OpenProcesses -> processesOpen = true
@@ -1262,6 +1265,7 @@ private fun Messages(
     // The rewind rules read only the messages.
     val chat = remember(messages) { ChatState(messages = messages) }
     ConfirmChange(confirm, canChange, lastPrompt, chat, actions, onDismiss = { confirm = null })
+    val reading = actions.readingAloud.collectAsStateWithLifecycle().value
     // Edit and branch only show while the chat can change; each asks before it does anything.
     fun ask(change: MessageChange, key: String): (() -> Unit)? = if (canChange) ({ confirm = change to key }) else null
     // A rewind asks only when it throws away more than the exchange it redoes.
@@ -1416,6 +1420,8 @@ private fun Messages(
                                     },
                                     last = message.key == lastReply,
                                     unservable = unservable,
+                                    reading = reading?.takeIf { it.key == message.key },
+                                    onReadAloud = { text -> actions.readAloud(message.key, text) },
                                 )
                             }
                             // An answer to another bot's message folds under it; never while it's still being written.
@@ -2000,6 +2006,10 @@ private fun AssistantReply(
     last: Boolean,
     /** The chat's generated pictures' paths that can't be loaded, taken out wherever they're repeated. */
     unservable: List<GeneratedImage> = emptyList(),
+    /** This reply being read aloud, when it is. */
+    reading: ReadAloud? = null,
+    /** Reads the reply's text aloud, or stops it; null leaves the speaker off. */
+    onReadAloud: ((String) -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
     val showReasoning = settings.showReasoning && message.reasoning.isNotBlank()
@@ -2067,6 +2077,7 @@ private fun AssistantReply(
                     // On the end, under the thumb of the hand holding the phone; Copy, the one used most, sits last.
                     // Copy's padding trimmed off the end lines its icon up with the reply's edge; all three lose 4dp on top to sit close under it.
                     val action = Modifier.trimEndTop(end = 0.dp, top = 4.dp)
+                    onReadAloud?.let { read -> ReadAloudButton(reading, onClick = { read(text) }, modifier = action) }
                     onBranch?.let { ReplyAction(Lucide.GitBranch, "Branch from here", it, action) }
                     onRegenerate?.let { ReplyAction(Lucide.RefreshCw, "Regenerate", it, action) }
                     CopyButton(text, Modifier.trimEndTop(end = 16.dp, top = 4.dp).size(MinTouchTarget))
@@ -2090,6 +2101,32 @@ internal fun ReplyHeader(epochSeconds: Double?) {
 @Composable
 private fun ReplyAction(icon: ImageVector, contentDescription: String, onClick: () -> Unit, modifier: Modifier) {
     IconButton(icon, contentDescription = contentDescription, onClick = onClick, modifier = modifier, tint = Theme[colors][textTertiary], iconSize = 16.dp)
+}
+
+/**
+ * The speaker under a reply: reads it aloud with the profile's voice. While the gateway voices the first
+ * words it spins; while it plays it's a stop button, accented, so it's plain which reply is talking.
+ */
+@Composable
+private fun ReadAloudButton(reading: ReadAloud?, onClick: () -> Unit, modifier: Modifier) {
+    when {
+        reading == null -> ReplyAction(Lucide.Volume2, "Read aloud", onClick, modifier)
+        reading.preparing -> Box(
+            modifier
+                .size(MinTouchTarget)
+                .clip(CircleShape)
+                .clickable(onClickLabel = "Stop reading aloud", onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Spinner(Modifier.size(16.dp)) }
+        else -> IconButton(
+            Lucide.Square,
+            contentDescription = "Stop reading aloud",
+            onClick = onClick,
+            modifier = modifier,
+            tint = Theme[colors][accentText],
+            iconSize = 14.dp,
+        )
+    }
 }
 
 /** A reply's tokens, read in and written out: "18.4k ↓ · 612 ↑". */
