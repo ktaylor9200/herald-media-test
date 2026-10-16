@@ -35,6 +35,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.coerceIn
@@ -442,6 +444,61 @@ internal fun ReplyPage(item: ReplyMedia, file: GatewayFile) {
         }
     }
 }
+
+/**
+ * A drawing a reply delivered or showed (`![chart](chart.svg)`, an SVG `data:` URL), drawn in the feed on white
+ * at the chat's width. One on the gateway opens full screen to zoom on a tap; one from the web waits for a tap
+ * to load, like any picture from the web.
+ */
+@Composable
+internal fun ReplySvg(item: ReplyMedia, file: GatewayFile?) {
+    val load = LocalMediaLoader.current
+    val openFile = LocalOpenFile.current
+    val density = LocalDensity.current
+    val remoteHost = remember(item.source) { webHost(item.source).takeUnless { item.generated } }
+    var allowed by remember(item.source) { mutableStateOf(remoteHost == null) }
+    if (!allowed) return RemotePictureGate(remoteHost ?: "the web", onAllow = { allowed = true })
+    val html = remember(item.source) { svgPage(file?.let { pageUrlOf(it.path) } ?: item.source) }
+    var drawnPx by remember(item.source) { mutableIntStateOf(0) }
+    val drawn = with(density) { drawnPx.toDp() }
+    val open: (() -> Unit)? = if (file != null && openFile != null) ({ openFile(file) }) else null
+    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    Box(
+        Modifier
+            .widthIn(max = 420.dp)
+            .fillMaxWidth()
+            .height(if (drawnPx > 0) drawn.coerceIn(DRAWING_MIN, DRAWING_MAX) else DRAWING_START)
+            .clip(shape)
+            .border(1.dp, Theme[colors][stroke], shape)
+            .background(Color.White),
+        contentAlignment = Alignment.Center,
+    ) {
+        HtmlView(
+            html,
+            // Data and web drawings aren't files; the page still needs an address of its own to be drawn at.
+            file ?: GatewayFile("/${item.name.ifBlank { "drawing.svg" }}"),
+            allowWeb = remoteHost != null,
+            fetch = { linked -> load(linked.path) },
+            onOpenFile = {},
+            onBlocked = {},
+            modifier = Modifier.fillMaxSize(),
+            onContentHeight = { drawnPx = it },
+        )
+        // Over the drawing and taking its touches: a drag scrolls the chat, a tap opens it.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clickable(enabled = open != null, onClickLabel = "Open ${item.name}") { open?.invoke() }
+                .semantics { contentDescription = item.name },
+        )
+        if (drawnPx == 0) Spinner()
+    }
+}
+
+/** A drawing's height in the feed before it's measured, and the least and most it takes once it is. */
+private val DRAWING_START = 200.dp
+private val DRAWING_MIN = 48.dp
+private val DRAWING_MAX = 480.dp
 
 /** A page's height in the feed before it's measured, and the least and most it takes once it is. */
 private val PAGE_START = 220.dp

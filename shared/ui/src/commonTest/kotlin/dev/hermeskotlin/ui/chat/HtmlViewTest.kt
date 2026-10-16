@@ -3,7 +3,9 @@ package dev.hermeskotlin.ui.chat
 import dev.hermeskotlin.core.media.GatewayFile
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class HtmlViewTest {
 
@@ -35,6 +37,26 @@ class HtmlViewTest {
         listOf("/opt/data/out/report.html", "~/a b/c.html", "C:/x/y.html", "/tmp/50% off & more (1).html", "/tmp/日本語.html").forEach { path ->
             val encoded = pageUrlOf(path).removePrefix("https://$PAGE_HOST")
             assertEquals(GatewayFile(path), gatewayFileOfPage(encoded), path)
+        }
+    }
+
+    @Test
+    fun aDrawingIsShownAsAnImageSoItsScriptsDontRun() {
+        val page = svgPage(pageUrlOf("/opt/data/out/My Chart.svg"))
+        assertTrue("""<img src="https://files.herald.invalid/opt/data/out/My%20Chart.svg" alt="">""" in page, page)
+        assertFalse("<script" in page)
+        // A data URL's quotes can't end the attribute early.
+        val data = svgPage("data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\"/>")
+        assertTrue("src=\"data:image/svg+xml;utf8,&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot;/>\"" in data, data)
+    }
+
+    @Test
+    fun drawingsAreToldApartFromPictures() {
+        listOf("/opt/data/chart.svg", "https://example.com/logo.SVG?v=2", "data:image/svg+xml;base64,PHN2Zy8+", "/x/icon.svgz").forEach {
+            assertTrue(isSvgSource(it), it)
+        }
+        listOf("/opt/data/chart.png", "data:image/png;base64,AAAA", "https://example.com/svg/logo.png").forEach {
+            assertFalse(isSvgSource(it), it)
         }
     }
 

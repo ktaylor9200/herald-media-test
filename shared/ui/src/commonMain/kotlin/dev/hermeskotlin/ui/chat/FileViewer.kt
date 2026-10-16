@@ -298,7 +298,7 @@ internal fun FileViewerPage(
         }
     }
 
-    val rendered = kind == GatewayFileKind.Markdown || kind == GatewayFileKind.Table || kind == GatewayFileKind.Html
+    val rendered = kind == GatewayFileKind.Markdown || kind == GatewayFileKind.Table || kind == GatewayFileKind.Html || kind == GatewayFileKind.Svg
     val textual = ready != null && (!rendered || raw)
     val save = { withBytes { notice = Notice(actions.save(it, file.name)) } }
     val share = { withBytes { actions.share(it, file.name) } }
@@ -401,7 +401,7 @@ internal fun FileViewerPage(
 
         notice?.let { NoticeLine(it) }
         // A page is drawn from the whole file, so only its source stops short.
-        if (ready?.truncated == true && (kind != GatewayFileKind.Html || raw)) {
+        if (ready?.truncated == true && (kind != GatewayFileKind.Html && kind != GatewayFileKind.Svg || raw)) {
             val shownBytes = remember(ready) { ready.text.encodeToByteArray().size.toLong() }
             Banner(
                 "Showing the first ${formatBytes(shownBytes)} of ${formatBytes(ready.byteSize)}. Save gets the whole file.",
@@ -433,6 +433,20 @@ internal fun FileViewerPage(
                         onOpen = openElsewhere.takeIf { fetched != null },
                     )
                     ready == null -> Unavailable(file, kind, null, onSave = save, onShare = share, onOpen = openElsewhere)
+                    kind == GatewayFileKind.Svg && !raw -> {
+                        val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+                        Box(Modifier.fillMaxSize().clip(shape).background(Color.White).border(1.dp, Theme[colors][stroke], shape)) {
+                            HtmlView(
+                                remember(file.path) { svgPage(pageUrlOf(file.path)) },
+                                file,
+                                allowWeb = false,
+                                fetch = { linked -> (download(linked) as? FileDownload.Ready)?.bytes },
+                                onOpenFile = {},
+                                onBlocked = {},
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
                     kind == GatewayFileKind.Html && !raw -> {
                         val onLink by rememberUpdatedState(onOpenFile)
                         HtmlPage(file, ready, download, onOpenFile = { onLink(it) }, modifier = Modifier.fillMaxSize())
@@ -717,6 +731,7 @@ internal fun kindIcon(kind: GatewayFileKind): ImageVector = when (kind) {
     GatewayFileKind.Code -> Lucide.FileCode
     GatewayFileKind.Image -> Lucide.FileImage
     GatewayFileKind.Html -> Lucide.Globe
+    GatewayFileKind.Svg -> Lucide.FileImage
     GatewayFileKind.Pdf -> Lucide.BookOpen
     GatewayFileKind.Audio -> Lucide.AudioLines
     GatewayFileKind.Video -> Lucide.Play
@@ -727,6 +742,7 @@ internal fun kindIcon(kind: GatewayFileKind): ImageVector = when (kind) {
 private fun languageOf(file: GatewayFile): String? = when (file.kind) {
     GatewayFileKind.Json -> "json"
     GatewayFileKind.Html -> "html"
+    GatewayFileKind.Svg -> "xml"
     GatewayFileKind.Code -> file.extension.ifEmpty { file.name.lowercase() }
     else -> null
 }

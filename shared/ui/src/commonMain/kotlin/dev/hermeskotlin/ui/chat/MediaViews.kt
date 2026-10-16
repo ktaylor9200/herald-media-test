@@ -101,8 +101,8 @@ internal class ViewerImage(
 )
 
 /**
- * The pictures and files a reply delivered, under its text: pictures shown, recordings as players, films
- * played in place, web pages drawn as on Desktop, other files as cards that open in the viewer.
+ * The pictures and files a reply delivered, under its text: pictures and drawings shown, recordings as
+ * players, films played in place, web pages drawn as on Desktop, other files as cards that open in the viewer.
  */
 @Composable
 internal fun ReplyMediaList(media: List<ReplyMedia>) {
@@ -112,6 +112,7 @@ internal fun ReplyMediaList(media: List<ReplyMedia>) {
             key(item.source) {
                 val file = remember(item.source) { GatewayFile(item.gatewayPath).takeIf { item.onGateway } }
                 when {
+                    isSvgSource(item.source) -> ReplySvg(item, file)
                     item.isImage || file?.kind == GatewayFileKind.Image -> ReplyImage(item)
                     file == null -> ReplyFile(item)
                     file.kind == GatewayFileKind.Audio -> ReplyAudio(item, file)
@@ -134,27 +135,7 @@ private fun ReplyImage(item: ReplyMedia) {
     // address came from the image tool, so it loads like on Desktop.
     val remoteHost = remember(item.source) { webHost(item.source).takeUnless { item.generated } }
     var allowed by remember(item.source) { mutableStateOf(remoteHost == null) }
-    if (!allowed) {
-        Row(
-            Modifier
-                .widthIn(max = 420.dp)
-                .fillMaxWidth()
-                .clip(shape)
-                .border(1.dp, Theme[colors][stroke], shape)
-                .background(Theme[colors][surface])
-                .clickable { allowed = true }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            UnstyledIcon(Lucide.Image, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(18.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Picture from $remoteHost", style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
-                Text("Tap to load it from that site", style = Theme[typography][caption], color = Theme[colors][textTertiary])
-            }
-        }
-        return
-    }
+    if (!allowed) return RemotePictureGate(remoteHost ?: "the web", onAllow = { allowed = true })
     // Bumped by a tap on a failed card, to ask again (a dropped link, a file not there yet).
     var attempt by remember(item.source) { mutableIntStateOf(0) }
     var failed by remember(item.source) { mutableStateOf(false) }
@@ -197,6 +178,30 @@ private fun ReplyImage(item: ReplyMedia) {
                 }
             }
             else -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) { Spinner() }
+        }
+    }
+}
+
+/** A picture from the web, not loaded until a tap says to. */
+@Composable
+internal fun RemotePictureGate(host: String, onAllow: () -> Unit) {
+    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    Row(
+        Modifier
+            .widthIn(max = 420.dp)
+            .fillMaxWidth()
+            .clip(shape)
+            .border(1.dp, Theme[colors][stroke], shape)
+            .background(Theme[colors][surface])
+            .clickable(onClick = onAllow)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        UnstyledIcon(Lucide.Image, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(18.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Picture from $host", style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
+            Text("Tap to load it from that site", style = Theme[typography][caption], color = Theme[colors][textTertiary])
         }
     }
 }

@@ -179,6 +179,9 @@ enum class GatewayFileKind(val label: String) {
     /** A page the agent made: drawn in a sandboxed web view, or shown as its source. */
     Html("Web page"),
 
+    /** A vector drawing: drawn by the web view (Android has no SVG decoder Compose can use), or shown as its source. */
+    Svg("Drawing"),
+
     /** Pages drawn from the whole file, not the gateway's text preview. */
     Pdf("PDF"),
 
@@ -204,6 +207,7 @@ enum class GatewayFileKind(val label: String) {
                 ext in TABLE -> Table
                 ext in IMAGE -> Image
                 ext in HTML -> Html
+                ext == "svg" || ext == "svgz" -> Svg
                 ext == "pdf" -> Pdf
                 ext in AUDIO -> Audio
                 ext in VIDEO -> Video
@@ -231,7 +235,7 @@ enum class GatewayFileKind(val label: String) {
         private val CODE = setOf(
             "kt", "kts", "java", "py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "go", "rs", "rb", "php", "c", "h", "cc", "cpp",
             "hpp", "cs", "swift", "m", "scala", "lua", "r", "pl", "sh", "bash", "zsh", "fish", "ps1", "sql",
-            "css", "scss", "less", "vue", "svelte", "xml", "svg", "yaml", "yml", "toml", "ini", "cfg", "conf", "properties",
+            "css", "scss", "less", "vue", "svelte", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "properties",
             "gradle", "dart", "ex", "exs", "hs", "zig", "nim", "tf", "proto", "graphql", "diff", "patch",
         )
         internal val CODE_NAMES = setOf("dockerfile", "makefile", "justfile", "procfile", "gemfile", "rakefile")

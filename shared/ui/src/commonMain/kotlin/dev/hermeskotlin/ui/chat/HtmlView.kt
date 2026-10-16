@@ -123,6 +123,23 @@ internal fun HtmlPage(
     }
 }
 
+/**
+ * A page that only draws the SVG at [src] (an address on [PAGE_HOST], a `data:` URL or a web address), as wide
+ * as the page and as tall as that makes it, on white: drawings are made for paper, and dark lines on a dark
+ * chat would vanish. Drawn as an image, so scripts in the drawing don't run and it fetches nothing itself.
+ */
+internal fun svgPage(src: String): String {
+    val attribute = src.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;")
+    return """<!doctype html><html><head><meta charset="utf-8">""" +
+        """<meta name="viewport" content="width=device-width,initial-scale=1">""" +
+        """<style>html,body{margin:0;padding:0;background:#fff}img{display:block;width:100%;height:auto}</style>""" +
+        """</head><body><img src="$attribute" alt=""></body></html>"""
+}
+
+/** A reply's picture that's a drawing: an `.svg` file or address, or an SVG `data:` URL. */
+internal fun isSvgSource(source: String): Boolean =
+    source.startsWith("data:image/svg+xml") || source.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase() in setOf("svg", "svgz")
+
 /** `cdn.example.com`, `a.com and b.com`, `a.com, b.com and 3 more`. */
 internal fun blockedSites(hosts: List<String>): String = when (hosts.size) {
     0 -> "the web"
