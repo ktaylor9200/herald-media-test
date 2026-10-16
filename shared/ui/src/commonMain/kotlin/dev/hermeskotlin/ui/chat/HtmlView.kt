@@ -46,7 +46,8 @@ import dev.hermeskotlin.designsystem.warningSoft
  * [html] drawn as a page in a web view of its own: scripts run, but the view holds no sign-in, reads no
  * files on the phone, and fetches only from the gateway (the page's own folder, as [fetch] reads it) until
  * [allowWeb]. Each site it was kept from goes to [onBlocked], once per load. A tapped link to another file
- * on the gateway goes to [onOpenFile]; one to the web opens in the browser.
+ * on the gateway goes to [onOpenFile]; one to the web opens in the browser. [onContentHeight] hears how tall
+ * the page draws, in pixels, as it loads and settles, for a card in the chat to size itself to it.
  */
 @Composable
 internal expect fun HtmlView(
@@ -57,6 +58,7 @@ internal expect fun HtmlView(
     onOpenFile: (GatewayFile) -> Unit,
     onBlocked: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onContentHeight: ((Int) -> Unit)? = null,
 )
 
 /**

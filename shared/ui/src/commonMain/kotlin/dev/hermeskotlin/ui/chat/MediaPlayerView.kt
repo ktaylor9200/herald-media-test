@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -61,6 +63,7 @@ import dev.hermeskotlin.designsystem.stroke
 import dev.hermeskotlin.designsystem.text as textColor
 import dev.hermeskotlin.designsystem.textTertiary
 import dev.hermeskotlin.designsystem.typography
+import kotlinx.coroutines.delay
 
 /** A recording or film loaded to play, its state readable from Compose. Times are in milliseconds. */
 internal interface Playback {
@@ -78,16 +81,46 @@ internal interface Playback {
     /** Why it can't be played, in plain words. */
     val error: String?
 
+    /** Plays from where it is; before it's [ready], as soon as it is. */
     fun play()
 
     fun pause()
 
     fun seekTo(ms: Long)
+
+    /** Brings [position] up to date; the player reports no progress of its own. */
+    fun poll()
+
+    /** Lets the player go; nothing else is done on it after. */
+    fun release()
 }
+
+/** [bytes] read to play, getting ready in the background. */
+internal expect fun newPlayback(bytes: ByteArray, video: Boolean): Playback
 
 /** [bytes] made ready to play while in composition, and let go after. */
 @Composable
-internal expect fun rememberPlayback(bytes: ByteArray, video: Boolean): Playback
+internal fun rememberPlayback(bytes: ByteArray, video: Boolean): Playback {
+    val playback = remember(bytes) { newPlayback(bytes, video) }
+    DisposableEffect(playback) { onDispose { playback.release() } }
+    PollWhilePlaying(playback)
+    return playback
+}
+
+/** Keeps [playback]'s position current while it plays. */
+@Composable
+internal fun PollWhilePlaying(playback: Playback?) {
+    val playing = playback?.playing == true
+    LaunchedEffect(playback, playing) {
+        while (playing) {
+            playback?.poll()
+            delay(POLL_MS)
+        }
+    }
+}
+
+/** How often the shown position is brought up to date while playing. */
+private const val POLL_MS = 250L
 
 /** Where [playback]'s picture is drawn. */
 @Composable
@@ -101,7 +134,10 @@ internal expect fun VideoSurface(playback: Playback, modifier: Modifier = Modifi
 @Composable
 internal fun MediaPlayerView(bytes: ByteArray, name: String, video: Boolean, onError: (String) -> Unit, modifier: Modifier = Modifier) {
     val playback = rememberPlayback(bytes, video)
+    val feed = LocalFeedPlayer.current
     LaunchedEffect(playback.error) { playback.error?.let(onError) }
+    // One thing plays at a time: the viewer's player stops the chat's.
+    LaunchedEffect(playback.playing) { if (playback.playing) feed?.pause() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { playback.pause() }
     val toggle = { if (playback.playing) playback.pause() else playback.play() }
     Column(modifier, verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -148,9 +184,7 @@ internal fun MediaPlayerView(bytes: ByteArray, name: String, video: Boolean, onE
 @Composable
 private fun PlayerControls(playback: Playback, toggle: () -> Unit, modifier: Modifier) {
     // Where a drag along the bar has got to, shown in place of the playing position until it's let go.
-    var dragged by remember(playback) { mutableStateOf<Float?>(null) }
-    val duration = playback.duration
-    val fraction = dragged ?: if (duration > 0) (playback.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    var scrub by remember(playback) { mutableStateOf<Long?>(null) }
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
             if (playback.ready) {
@@ -165,47 +199,80 @@ private fun PlayerControls(playback: Playback, toggle: () -> Unit, modifier: Mod
                 Spinner(Modifier.size(20.dp))
             }
         }
-        Text(
-            formatPlayTime(if (dragged != null) (fraction * duration).toLong() else playback.position),
-            style = Theme[typography][caption],
-            color = Theme[colors][textTertiary],
+        Text(formatPlayTime(scrub ?: playback.position), style = Theme[typography][caption], color = Theme[colors][textTertiary])
+        SeekBar(
+            position = playback.position,
+            duration = playback.duration,
+            onSeek = playback::seekTo,
+            onScrub = { scrub = it },
+            modifier = Modifier.weight(1f).height(32.dp),
         )
-        BoxWithConstraints(
-            Modifier
-                .weight(1f)
-                .height(32.dp)
-                .semantics {
-                    contentDescription = "Position"
-                    stateDescription = "${formatPlayTime(playback.position)} of ${formatPlayTime(duration)}"
-                }
-                .pointerInput(playback, duration) {
-                    if (duration <= 0) return@pointerInput
-                    detectTapGestures { offset -> playback.seekTo((offset.x / size.width).coerceIn(0f, 1f).times(duration).toLong()) }
-                }
-                .pointerInput(playback, duration) {
-                    if (duration <= 0) return@pointerInput
-                    detectHorizontalDragGestures(
-                        onDragStart = { offset -> dragged = (offset.x / size.width).coerceIn(0f, 1f) },
-                        onDragEnd = {
-                            dragged?.let { playback.seekTo((it * duration).toLong()) }
-                            dragged = null
-                        },
-                        onDragCancel = { dragged = null },
-                        onHorizontalDrag = { change, _ -> dragged = (change.position.x / size.width).coerceIn(0f, 1f) },
-                    )
-                },
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Box(Modifier.fillMaxWidth().height(4.dp).background(Theme[colors][stroke], CircleShape))
-            Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(Theme[colors][accent], CircleShape))
+        Text(formatPlayTime(playback.duration), style = Theme[typography][caption], color = Theme[colors][textTertiary])
+    }
+}
+
+/**
+ * A bar through a recording: tap a place to go there, or drag along it, [onScrub] getting where the drag has
+ * got to (null once it's let go) and [onSeek] where it ended. Does nothing while [duration] isn't known.
+ */
+@Composable
+internal fun SeekBar(
+    position: Long,
+    duration: Long,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    onScrub: (Long?) -> Unit = {},
+    thumb: Dp = 14.dp,
+) {
+    var dragged by remember { mutableStateOf<Float?>(null) }
+    val fraction = dragged ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val enabled = duration > 0
+    BoxWithConstraints(
+        modifier
+            .semantics {
+                contentDescription = "Position"
+                stateDescription = "${formatPlayTime(position)} of ${formatPlayTime(duration)}"
+            }
+            .pointerInput(duration) {
+                if (duration <= 0) return@pointerInput
+                detectTapGestures { offset -> onSeek(((offset.x / size.width).coerceIn(0f, 1f) * duration).toLong()) }
+            }
+            .pointerInput(duration) {
+                if (duration <= 0) return@pointerInput
+                fun at(x: Float) = (x / size.width).coerceIn(0f, 1f)
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        dragged = at(offset.x)
+                        onScrub((at(offset.x) * duration).toLong())
+                    },
+                    onDragEnd = {
+                        dragged?.let { onSeek((it * duration).toLong()) }
+                        dragged = null
+                        onScrub(null)
+                    },
+                    onDragCancel = {
+                        dragged = null
+                        onScrub(null)
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        dragged = at(change.position.x)
+                        onScrub((at(change.position.x) * duration).toLong())
+                    },
+                )
+            },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        val track = if (enabled) Theme[colors][stroke] else Theme[colors][stroke].copy(alpha = 0.6f)
+        Box(Modifier.fillMaxWidth().height(4.dp).background(track, CircleShape))
+        Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(Theme[colors][accent], CircleShape))
+        if (enabled) {
             Box(
                 Modifier
-                    .padding(start = (maxWidth - 14.dp).coerceAtLeast(0.dp) * fraction)
-                    .size(14.dp)
+                    .padding(start = (maxWidth - thumb).coerceAtLeast(0.dp) * fraction)
+                    .size(thumb)
                     .background(Theme[colors][accent], CircleShape),
             )
         }
-        Text(formatPlayTime(duration), style = Theme[typography][caption], color = Theme[colors][textTertiary])
     }
 }
 

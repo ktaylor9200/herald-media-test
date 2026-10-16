@@ -100,12 +100,27 @@ internal class ViewerImage(
     val fetch: (suspend () -> FileDownload)? = null,
 )
 
-/** The pictures and files a reply delivered, under its text. */
+/**
+ * The pictures and files a reply delivered, under its text: pictures shown, recordings as players, films
+ * played in place, web pages drawn as on Desktop, other files as cards that open in the viewer.
+ */
 @Composable
 internal fun ReplyMediaList(media: List<ReplyMedia>) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Keyed, so a picture's loaded bytes never show under another one when the list changes.
-        media.forEach { item -> key(item.source) { if (item.isImage) ReplyImage(item) else ReplyFile(item) } }
+        media.forEach { item ->
+            key(item.source) {
+                val file = remember(item.source) { GatewayFile(item.gatewayPath).takeIf { item.onGateway } }
+                when {
+                    item.isImage || file?.kind == GatewayFileKind.Image -> ReplyImage(item)
+                    file == null -> ReplyFile(item)
+                    file.kind == GatewayFileKind.Audio -> ReplyAudio(item, file)
+                    file.kind == GatewayFileKind.Video -> ReplyVideo(item, file)
+                    file.kind == GatewayFileKind.Html -> ReplyPage(item, file)
+                    else -> ReplyFile(item)
+                }
+            }
+        }
     }
 }
 
@@ -197,7 +212,7 @@ internal fun webHost(source: String): String? {
  * when tapped: a page drawn, a recording played, a document read, without saving it first.
  */
 @Composable
-private fun ReplyFile(item: ReplyMedia) {
+internal fun ReplyFile(item: ReplyMedia) {
     val load = LocalMediaLoader.current
     val actions = rememberMediaActions()
     val notify = LocalNotice.current

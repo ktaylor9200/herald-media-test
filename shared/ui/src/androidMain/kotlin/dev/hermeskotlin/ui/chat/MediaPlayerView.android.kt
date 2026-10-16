@@ -7,33 +7,14 @@ import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import kotlinx.coroutines.delay
 
-@Composable
-internal actual fun rememberPlayback(bytes: ByteArray, video: Boolean): Playback {
-    val playback = remember(bytes) { AndroidPlayback(bytes, video) }
-    DisposableEffect(playback) {
-        playback.prepare()
-        onDispose { playback.release() }
-    }
-    // The player reports no progress of its own: read where it is while it plays.
-    LaunchedEffect(playback, playback.playing) {
-        while (playback.playing) {
-            playback.poll()
-            delay(POLL_MS)
-        }
-    }
-    return playback
-}
+internal actual fun newPlayback(bytes: ByteArray, video: Boolean): Playback = AndroidPlayback(bytes, video).also { it.prepare() }
 
 @Composable
 internal actual fun VideoSurface(playback: Playback, modifier: Modifier) {
@@ -86,6 +67,9 @@ private class AndroidPlayback(private val bytes: ByteArray, private val video: B
         private set
 
     private var released = false
+
+    // Play was tapped before the player was ready: it starts once it is.
+    private var startWhenReady = false
     private val player = MediaPlayer()
 
     fun prepare() {
@@ -98,6 +82,7 @@ private class AndroidPlayback(private val bytes: ByteArray, private val video: B
         player.setOnPreparedListener { prepared ->
             duration = prepared.duration.toLong().coerceAtLeast(0)
             ready = true
+            if (startWhenReady) play()
         }
         player.setOnVideoSizeChangedListener { _, width, height ->
             if (width > 0 && height > 0) videoAspect = width.toFloat() / height
@@ -120,7 +105,12 @@ private class AndroidPlayback(private val bytes: ByteArray, private val video: B
     }
 
     override fun play() {
-        if (released || !ready) return
+        if (released) return
+        if (!ready) {
+            startWhenReady = error == null
+            return
+        }
+        startWhenReady = false
         // From the end, a tap on Play starts again.
         if (duration > 0 && position >= duration) seekTo(0)
         player.start()
@@ -128,6 +118,7 @@ private class AndroidPlayback(private val bytes: ByteArray, private val video: B
     }
 
     override fun pause() {
+        startWhenReady = false
         if (released || !playing) return
         player.pause()
         playing = false
@@ -141,7 +132,7 @@ private class AndroidPlayback(private val bytes: ByteArray, private val video: B
         position = target
     }
 
-    fun poll() {
+    override fun poll() {
         if (released || !ready) return
         position = player.currentPosition.toLong()
     }
@@ -154,7 +145,7 @@ private class AndroidPlayback(private val bytes: ByteArray, private val video: B
         }
     }
 
-    fun release() {
+    override fun release() {
         if (released) return
         released = true
         playing = false
@@ -182,5 +173,3 @@ private class BytesSource(private val bytes: ByteArray) : MediaDataSource() {
     override fun close() = Unit
 }
 
-/** How often the shown position is brought up to date while playing. */
-private const val POLL_MS = 250L

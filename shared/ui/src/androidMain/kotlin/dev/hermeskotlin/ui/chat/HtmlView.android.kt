@@ -41,11 +41,13 @@ internal actual fun HtmlView(
     onOpenFile: (GatewayFile) -> Unit,
     onBlocked: (String) -> Unit,
     modifier: Modifier,
+    onContentHeight: ((Int) -> Unit)?,
 ) {
     val context = LocalContext.current
     val fetchNow by rememberUpdatedState(fetch)
     val openNow by rememberUpdatedState(onOpenFile)
     val blockedNow by rememberUpdatedState(onBlocked)
+    val heightNow by rememberUpdatedState(onContentHeight)
     // Read on WebView's own threads, not the main one.
     val webAllowed = remember(file) { AtomicBoolean(allowWeb) }
     // The page's files, fetched once each while it's open: a reload for Load doesn't fetch them again.
@@ -88,6 +90,20 @@ internal actual fun HtmlView(
                         return status(403, "Held back")
                     }
                     return null
+                }
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    // Scripts and web fonts keep laying the page out after it "finishes": measure again as it settles.
+                    if (heightNow == null) return
+                    MEASURE_AFTER_MS.forEach { delay ->
+                        view.postDelayed({
+                            // Scrolled away and let go meanwhile.
+                            if (!view.isAttachedToWindow) return@postDelayed
+                            @Suppress("DEPRECATION") // Still the one measure of the page's zoom; there's no replacement.
+                            val pixels = (view.contentHeight * view.scale).toInt()
+                            if (pixels > 0) heightNow?.invoke(pixels)
+                        }, delay)
+                    }
                 }
 
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -140,6 +156,9 @@ private fun mimeOf(name: String): String {
         else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
     }
 }
+
+/** When a loaded page is measured again, as its scripts and fonts settle. */
+private val MEASURE_AFTER_MS = listOf(0L, 300L, 1_000L, 2_500L)
 
 /** How long the page waits for one of its files from the gateway before treating it as missing. */
 private const val FETCH_TIMEOUT_MS = 20_000L

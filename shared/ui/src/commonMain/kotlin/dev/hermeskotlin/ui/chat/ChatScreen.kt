@@ -352,6 +352,9 @@ fun ChatScreen(
     LaunchedEffect(hasControl) { if (!hasControl) controlOpen = false }
     var viewing by remember { mutableStateOf<ViewerImage?>(null) }
     var previewing by remember { mutableStateOf<GatewayFile?>(null) }
+    // What the feed plays, kept here so the viewer opening over it can stop it.
+    val feedPlayer = rememberFeedPlayer()
+    LaunchedEffect(previewing) { if (previewing != null) feedPlayer.pause() }
     var notice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
         if (notice != null) {
@@ -411,6 +414,7 @@ fun ChatScreen(
         mention?.let { faces.bots.mentionable(it.query, self = target.bot?.name) }.orEmpty()
     }
     ChatView(
+        feedPlayer = feedPlayer,
         // A bot's chat is titled "Bot Chat" on the gateway; the bot's name says more.
         title = target.bot?.label ?: state.title?.takeIf { it.isNotBlank() } ?: target.title ?: "New chat",
         titleFace = LocalBotFaces.current.let { faces ->
@@ -596,6 +600,8 @@ internal fun ChatView(
     /** A tapped link to a file on the gateway. */
     onOpenFile: (GatewayFile) -> Unit = {},
     onNotice: (String) -> Unit,
+    /** Plays the recordings and films in the feed; one of the view's own when not given. */
+    feedPlayer: FeedPlayer? = null,
     /** The chat background from Settings, drawn behind the conversation (and frosted under the composer). */
     wallpaper: ImageBitmap? = null,
     /** The gateway's name, said where Hermes runs: under the title and on the empty chat. */
@@ -608,6 +614,7 @@ internal fun ChatView(
     onDismissOtherChat: (OtherChatEvent) -> Unit = {},
     onNextChat: (() -> Unit)? = null,
 ) {
+    val feed = feedPlayer ?: rememberFeedPlayer()
     Box(
         Modifier
             .fillMaxSize()
@@ -692,6 +699,7 @@ internal fun ChatView(
                             LocalOpenImage provides onViewImage,
                             LocalFileLinks provides { link -> GatewayFile.fromLink(link)?.let(onOpenFile) },
                             LocalOpenFile provides onOpenFile,
+                            LocalFeedPlayer provides feed,
                             LocalNotice provides onNotice,
                             LocalSubagents provides SubagentContext(state.subagents, actions::stopSubagent),
                             LocalCommentHost provides commentHost,
