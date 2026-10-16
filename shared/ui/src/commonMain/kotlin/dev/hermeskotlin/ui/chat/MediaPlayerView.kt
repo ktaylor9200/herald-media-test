@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -199,7 +200,7 @@ private fun PlayerControls(playback: Playback, toggle: () -> Unit, modifier: Mod
             Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(Theme[colors][accent], CircleShape))
             Box(
                 Modifier
-                    .padding(start = (maxWidth - 14.dp) * fraction)
+                    .padding(start = (maxWidth - 14.dp).coerceAtLeast(0.dp) * fraction)
                     .size(14.dp)
                     .background(Theme[colors][accent], CircleShape),
             )
