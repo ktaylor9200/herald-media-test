@@ -61,6 +61,44 @@ class HtmlViewTest {
     }
 
     @Test
+    fun aPageReadsOnlyTheFilesInItsOwnFolder() {
+        val page = GatewayFile("/opt/data/out/report.html")
+        listOf("/opt/data/out/style.css", "/opt/data/out/assets/chart.js", "/opt/data/out/report.html").forEach {
+            assertTrue(pageMayRead(page, GatewayFile(it)), it)
+        }
+        listOf(
+            // Above its folder, beside it, or anywhere else on the gateway.
+            "/opt/data/secrets.txt", "/opt/data/outside/x.css", "/etc/passwd", "~/notes.md",
+            // Hidden files and folders, however deep.
+            "/opt/data/out/.env", "/opt/data/out/assets/.git/config", "/opt/data/out/.ssh/id_ed25519",
+        ).forEach { assertFalse(pageMayRead(page, GatewayFile(it)), it) }
+        // A `..` the page escaped so the view wouldn't fold it away still can't climb out.
+        assertFalse(pageMayRead(page, gatewayFileOfPage("/opt/data/out/..%2F..%2F..%2Fetc%2Fpasswd")!!))
+        // Nor can one written with Windows separators.
+        assertFalse(pageMayRead(page, GatewayFile("/opt/data/out/a\\..\\..\\x.txt")))
+        // In the home folder, the page's folder there and below.
+        val notes = GatewayFile("~/notes/index.html")
+        assertTrue(pageMayRead(notes, GatewayFile("~/notes/app.js")))
+        assertFalse(pageMayRead(notes, GatewayFile("~/.hermes/auth.json")))
+        assertFalse(pageMayRead(notes, GatewayFile("/home/me/notes/app.js")))
+    }
+
+    @Test
+    fun onlyATapFollowsALinkOutOfAPage() {
+        val page = GatewayFile("/opt/data/out/report.html")
+        assertEquals(PageLink.App, pageLinkOf(page, "https", "example.com", "/", tapped = true))
+        assertEquals(PageLink.App, pageLinkOf(page, "mailto", null, "me@example.com", tapped = true))
+        assertEquals(PageLink.File(GatewayFile("/opt/data/out/part2.html")), pageLinkOf(page, "https", PAGE_HOST, "/opt/data/out/part2.html", tapped = true))
+        // A page moving itself could carry what it read to a site in the address.
+        assertEquals(PageLink.Stay, pageLinkOf(page, "https", "evil.example", "/", tapped = false))
+        assertEquals(PageLink.Stay, pageLinkOf(page, "https", PAGE_HOST, "/opt/data/out/part2.html", tapped = false))
+        // Itself, other apps' schemes and folders go nowhere.
+        assertEquals(PageLink.Stay, pageLinkOf(page, "https", PAGE_HOST, "/opt/data/out/report.html", tapped = true))
+        assertEquals(PageLink.Stay, pageLinkOf(page, "intent", null, "//scan", tapped = true))
+        assertEquals(PageLink.Stay, pageLinkOf(page, "https", PAGE_HOST, "/opt/data/", tapped = true))
+    }
+
+    @Test
     fun heldBackSitesAreListedShort() {
         assertEquals("cdn.jsdelivr.net", blockedSites(listOf("cdn.jsdelivr.net")))
         assertEquals("a.com and b.com", blockedSites(listOf("a.com", "b.com")))
