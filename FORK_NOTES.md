@@ -61,10 +61,11 @@ and Share.
 - Errors go through `ChatRequest.Notice`.
 
 ## Device-tested
-- Round 1 (viewer: HTML, audio and video full screen, Open) is confirmed on the person's phone and works well.
-- Round 2 (in-feed media) is confirmed, and the audio pill player works as designed.
-- SVG drawings render properly in the chat feed (confirmed).
-- No report yet on the speaker button (read aloud), or on SVG in the full-screen viewer (Preview/Source).
+All of it is confirmed on the person's phone:
+- Round 1: the viewer (HTML, audio and video full screen, Open).
+- Round 2: in-feed media (the audio pill, inline video, inline pages).
+- The speaker button (read aloud) works as designed.
+- SVG drawings work in the chat feed and in the full-screen viewer (Preview/Source).
 
 ## Open items and known gaps
 - **Sandbox gap**: WebSockets and WebRTC don't go through `shouldInterceptRequest`, so a page can open them without
