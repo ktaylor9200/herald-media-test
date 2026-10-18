@@ -487,12 +487,13 @@ class VoiceController(
     /**
      * Reads reply [key] aloud, as a voice chat would: [markdown] made speakable, voiced piece by piece with the
      * profile's text-to-speech and played on the phone. Tapped again while it reads, it stops; another reply
-     * takes over from this one. Not while a voice chat has the speaker. [onError] hears what went wrong.
+     * takes over from this one. Not while a voice chat has the speaker, nor while dictation has the microphone,
+     * which would write the reading down. [onError] hears what went wrong.
      */
     fun readAloud(key: String, markdown: String, gateway: GatewayUrl, profile: String?, onError: (String) -> Unit) {
         val again = _reading.value?.key == key
         stopReading()
-        if (again || _chat.value.phase != VoicePhase.Off) return
+        if (again || _chat.value.phase != VoicePhase.Off || _dictation.value.recording) return
         val text = speakableText(markdown)
         if (text.isBlank()) return onError("There's nothing in this reply to read aloud.")
         val id = ++readCount
@@ -551,6 +552,8 @@ class VoiceController(
         onText: (String) -> Unit,
     ) {
         if (dictationJob?.isActive == true || chatJob?.isActive == true) return
+        // The microphone would hear a reply being read aloud and write it down.
+        stopReading()
         _dictation.value = DictationState(recording = true)
         val device = deviceDictation?.takeIf { engine == DictationEngine.Device && it.available() }
         dictating = device
