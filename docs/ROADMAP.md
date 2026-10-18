@@ -89,10 +89,11 @@ uses. The protocol itself is described in [hermes-protocol-research.md](hermes-p
 - [x] Long chats load a page at a time: the newest 60 rows on opening, older pages as you scroll to the top (`order=latest` + `offset`), each starting at a prompt so no turn is cut in two; the list keeps its place. Branching loads the rest first so it counts from the first row
 - [x] Resume a session live and reply in it (`session.resume {omit_messages}` + REST history, like Desktop)
 - [x] The app opens on a chat: the one you had open last on this gateway, or a fresh one if you left on a new chat (remembered per gateway)
-- [x] Sessions live in a left sidebar: a swipe-in drawer on phones (swipe right or the panel button; swipe left, tap outside or Back to close), docked and collapsible on wide screens; the open chat is highlighted
+- [x] Sessions live in a left sidebar: a swipe-in drawer on phones (swipe right or the panel button; swipe left off the chat rows, tap outside or Back to close), docked and collapsible on wide screens; the open chat is highlighted
 - [x] Sidebar layout: title with a round search button, Scheduled / Archived rows, title-only chat rows with a live dot for running sessions, floating "New chat" pill and an initials avatar (with a connection warning dot) that opens the account sheet
 - [x] Refetch the list whenever the sidebar opens
 - [x] Rename, pin, archive and delete (`PATCH`/`DELETE /api/sessions/{id}`), with optimistic updates that roll back on error
+- [x] Swipe a chat row: right pins or unpins, left archives (with Undo); in Archived, right unarchives and left deletes (after asking). A row's swipe wins over the drawer's swipe-left close; screen readers get the same actions
 - [x] Chat options (⋮ beside new chat) for the open chat: rename, pin, export as Markdown, copy session ID, archive, delete
 - [x] Floating see-through composer over the conversation
 - [x] Reading back stays put while a reply streams below; the jump arrow then reads "New reply"
@@ -108,6 +109,7 @@ uses. The protocol itself is described in [hermes-protocol-research.md](hermes-p
 - [x] Markdown rendering (GFM: lists, tables, links, code blocks with language label and copy button; copy whole reply); only web and mail links open
 - [x] Tables in replies size each column by its cells (a column of emoji or numbers stays slim, wordy ones share the rest and wrap, and only a table whose longest words don't fit scrolls sideways), with faint grid lines and every second row tinted
 - [x] Pictures from the web load only on a tap, without gateway cookies
+- [x] Optional webpage cards beneath completed replies (Settings → Chat → Show link previews, off by default): up to three unique links, with title, description and thumbnail when available; fetched without gateway cookies, never from loopback, LAN, link-local or tailnet addresses (checked again after DNS)
 - [x] Syntax highlighting in code blocks (Highlights, cached by content; light and dark palettes); long lines scroll sideways or wrap ("Wrap code lines" setting)
 - [x] TeX math: inline `$…$` / `\(…\)` and display `$$…$$` / `\[…\]` typeset with JLaTeXMath (display formulas centered and scrollable); prices like "$5 and $10" stay text, code is left alone, and a formula that won't parse shows its source
 - [x] A small time under each prompt and finished reply ("Message timestamps" setting): the stored row's time, or when this device sent or saw it finish
