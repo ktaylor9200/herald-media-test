@@ -139,7 +139,7 @@ internal fun svgPage(src: String): String {
 
 /** A reply's picture that's a drawing: an `.svg` file or address, or an SVG `data:` URL. */
 internal fun isSvgSource(source: String): Boolean =
-    source.startsWith("data:image/svg+xml") || source.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase() in setOf("svg", "svgz")
+    source.startsWith("data:image/svg+xml") || source.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase() == "svg"
 
 /**
  * Whether the page at [page] may read [target] for itself: a file in the page's own folder or in a folder

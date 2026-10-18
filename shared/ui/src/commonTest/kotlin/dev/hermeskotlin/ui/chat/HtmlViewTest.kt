@@ -52,10 +52,11 @@ class HtmlViewTest {
 
     @Test
     fun drawingsAreToldApartFromPictures() {
-        listOf("/opt/data/chart.svg", "https://example.com/logo.SVG?v=2", "data:image/svg+xml;base64,PHN2Zy8+", "/x/icon.svgz").forEach {
+        listOf("/opt/data/chart.svg", "https://example.com/logo.SVG?v=2", "data:image/svg+xml;base64,PHN2Zy8+").forEach {
             assertTrue(isSvgSource(it), it)
         }
-        listOf("/opt/data/chart.png", "data:image/png;base64,AAAA", "https://example.com/svg/logo.png").forEach {
+        // A gzipped drawing can't be drawn from the gateway's bytes as they come: it's a file to save or open.
+        listOf("/opt/data/chart.png", "data:image/png;base64,AAAA", "https://example.com/svg/logo.png", "/x/icon.svgz").forEach {
             assertFalse(isSvgSource(it), it)
         }
     }
