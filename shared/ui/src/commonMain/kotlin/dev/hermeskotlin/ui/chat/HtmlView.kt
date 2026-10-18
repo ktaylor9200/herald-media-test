@@ -196,9 +196,6 @@ internal fun guardedPage(html: String, allowWeb: Boolean): String {
 /** A doctype and what may stand before it: a byte-order mark, space, an XML declaration, comments. */
 private val LEADING_DOCTYPE = Regex("""^[\s\uFEFF]*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>""", RegexOption.IGNORE_CASE)
 
-/** Connections only to the made-up site, which the view answers itself, and to data the page holds. */
-private const val PAGE_POLICY = """<meta http-equiv="Content-Security-Policy" content="connect-src https://$PAGE_HOST data: blob:">"""
-
 /** `cdn.example.com`, `a.com and b.com`, `a.com, b.com and 3 more`. */
 internal fun blockedSites(hosts: List<String>): String = when (hosts.size) {
     0 -> "the web"
@@ -212,6 +209,9 @@ internal fun blockedSites(hosts: List<String>): String = when (hosts.size) {
  * with the gateway's files. `.invalid` is reserved, so it can't be anyone's real site.
  */
 internal const val PAGE_HOST = "files.herald.invalid"
+
+/** For [guardedPage]: connections only to the made-up site, which the view answers itself, and to data the page holds. */
+private const val PAGE_POLICY = """<meta http-equiv="Content-Security-Policy" content="connect-src https://$PAGE_HOST data: blob:">"""
 
 /**
  * The address [path] is drawn at, so relative links in the page (`style.css`, `../data.json`) resolve to
