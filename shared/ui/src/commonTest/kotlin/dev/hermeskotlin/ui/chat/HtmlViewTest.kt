@@ -99,6 +99,21 @@ class HtmlViewTest {
     }
 
     @Test
+    fun aPageCantOpenItsOwnConnectionsUntilTheWebIsAllowed() {
+        val policy = """<meta http-equiv="Content-Security-Policy" content="connect-src https://files.herald.invalid data: blob:">"""
+        // After the doctype, which has to come first or the page is laid out in quirks mode.
+        assertEquals("<!DOCTYPE html>$policy<html><body>hi</body></html>", guardedPage("<!DOCTYPE html><html><body>hi</body></html>", allowWeb = false))
+        assertEquals(
+            "\uFEFF<?xml version=\"1.0\"?>\n<!-- made by the agent -->\n<!doctype html>$policy\n<p>x</p>",
+            guardedPage("\uFEFF<?xml version=\"1.0\"?>\n<!-- made by the agent -->\n<!doctype html>\n<p>x</p>", allowWeb = false),
+        )
+        assertEquals("$policy<p>no doctype</p>", guardedPage("<p>no doctype</p>", allowWeb = false))
+        // A doctype later in the page isn't the page's own.
+        assertEquals("$policy<p>a</p><!doctype html>", guardedPage("<p>a</p><!doctype html>", allowWeb = false))
+        assertEquals("<!doctype html><p>web</p>", guardedPage("<!doctype html><p>web</p>", allowWeb = true))
+    }
+
+    @Test
     fun heldBackSitesAreListedShort() {
         assertEquals("cdn.jsdelivr.net", blockedSites(listOf("cdn.jsdelivr.net")))
         assertEquals("a.com and b.com", blockedSites(listOf("a.com", "b.com")))

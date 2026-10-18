@@ -182,6 +182,23 @@ internal fun pageLinkOf(page: GatewayFile, scheme: String?, host: String?, encod
     return if (scheme?.lowercase() in setOf("http", "https", "mailto", "tel")) PageLink.App else PageLink.Stay
 }
 
+/**
+ * [html] as the view loads it. Until the web is allowed, a content policy goes first so the page can't open
+ * connections of its own (WebSockets, beacons): the view's request filter never sees those. It goes after a
+ * doctype, which must come first or the page is laid out in quirks mode.
+ */
+internal fun guardedPage(html: String, allowWeb: Boolean): String {
+    if (allowWeb) return html
+    val at = LEADING_DOCTYPE.find(html)?.range?.last?.plus(1) ?: 0
+    return html.substring(0, at) + PAGE_POLICY + html.substring(at)
+}
+
+/** A doctype and what may stand before it: a byte-order mark, space, an XML declaration, comments. */
+private val LEADING_DOCTYPE = Regex("""^[\s\uFEFF]*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>""", RegexOption.IGNORE_CASE)
+
+/** Connections only to the made-up site, which the view answers itself, and to data the page holds. */
+private const val PAGE_POLICY = """<meta http-equiv="Content-Security-Policy" content="connect-src https://$PAGE_HOST data: blob:">"""
+
 /** `cdn.example.com`, `a.com and b.com`, `a.com, b.com and 3 more`. */
 internal fun blockedSites(hosts: List<String>): String = when (hosts.size) {
     0 -> "the web"

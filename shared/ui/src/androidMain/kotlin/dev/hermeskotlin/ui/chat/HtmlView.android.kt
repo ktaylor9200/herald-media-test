@@ -31,7 +31,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 // Scripts run: the pages agents make are charts and small tools. What keeps them in their box is the rest
 // of the setup: no cookies or sign-in, no file or content access, no bridge to the app, gateway files only
 // from the page's own folder, links followed only on a tap, and every other request held back until the
-// person allows the web.
+// person allows the web. A WebView has no switch for WebRTC or for a preconnect's lookup, so a page can still
+// reach a site that way; all it could send is what its own folder holds.
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal actual fun HtmlView(
@@ -86,7 +87,7 @@ internal actual fun HtmlView(
                         return WebResourceResponse(mimeOf(target.name), null, ByteArrayInputStream(bytes))
                     }
                     val scheme = url.scheme?.lowercase()
-                    if ((scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss") && !webAllowed.get()) {
+                    if ((scheme == "http" || scheme == "https") && !webAllowed.get()) {
                         val host = url.host ?: "the web"
                         main.post { blockedNow(host) }
                         return status(403, "Held back")
@@ -133,7 +134,7 @@ internal actual fun HtmlView(
     }
     LaunchedEffect(webView, html, allowWeb) {
         webAllowed.set(allowWeb)
-        webView.loadDataWithBaseURL(pageUrl, html, "text/html", "utf-8", null)
+        webView.loadDataWithBaseURL(pageUrl, guardedPage(html, allowWeb), "text/html", "utf-8", null)
     }
     AndroidView(factory = { webView }, modifier = modifier)
 }
