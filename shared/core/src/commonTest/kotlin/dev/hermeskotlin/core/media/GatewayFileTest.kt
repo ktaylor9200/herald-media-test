@@ -126,6 +126,8 @@ class GatewayFileTest {
         // Drawn by the web view, not decoded as a picture: Android has no SVG decoder that Compose can use.
         assertEquals(GatewayFileKind.Svg, GatewayFileKind.of("logo.svg"))
         assertEquals(GatewayFileKind.Svg, GatewayFileKind.of("Chart.SVG"))
+        // Gzipped, it can't be drawn from the bytes the gateway hands over: a file to save or open.
+        assertEquals(GatewayFileKind.Other, GatewayFileKind.of("icon.svgz"))
         assertTrue(GatewayFileKind.Svg.previewable)
         assertFalse(GatewayFileKind.Svg.fetchedWhole)
         assertTrue(GatewayFileKind.Code.previewable)

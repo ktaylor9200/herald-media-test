@@ -104,13 +104,17 @@ internal class FeedPlayer(private val scope: CoroutineScope) {
     var failed by mutableStateOf<String?>(null)
         private set
 
+    /** Why it wouldn't, in the gateway's words where it said (too large, not there). */
+    var failure by mutableStateOf<String?>(null)
+        private set
+
     private var job: Job? = null
 
     /** [source]'s player, when it's the one loaded. */
     fun playbackOf(source: String): Playback? = playback.takeIf { this.source == source }
 
     /** Plays or pauses [source]; one not loaded yet is fetched with [load] and starts once it's ready. */
-    fun toggle(source: String, video: Boolean, load: suspend () -> ByteArray?) {
+    fun toggle(source: String, video: Boolean, load: suspend () -> FileDownload) {
         val current = playbackOf(source)
         if (current != null && current.error == null) {
             if (current.playing) current.pause() else current.play()
@@ -119,19 +123,24 @@ internal class FeedPlayer(private val scope: CoroutineScope) {
         if (loading == source) return
         stop()
         failed = null
+        failure = null
         loading = source
         job = scope.launch {
-            val bytes = try {
-                withTimeoutOrNull(LOAD_TIMEOUT_MS) { load() }
+            val got = try {
+                withTimeoutOrNull(LOAD_TIMEOUT_MS) { load() } ?: FileDownload.Failed("It took too long to come from the gateway.")
             } finally {
                 if (loading == source) loading = null
             }
-            if (bytes == null) {
-                failed = source
-                return@launch
+            when (got) {
+                is FileDownload.Failed -> {
+                    failure = got.message
+                    failed = source
+                }
+                is FileDownload.Ready -> {
+                    this@FeedPlayer.source = source
+                    playback = newPlayback(got.bytes, video).also { it.play() }
+                }
             }
-            this@FeedPlayer.source = source
-            playback = newPlayback(bytes, video).also { it.play() }
         }
     }
 
@@ -175,8 +184,9 @@ internal fun rememberFeedPlayer(): FeedPlayer {
 @Composable
 internal fun ReplyAudio(item: ReplyMedia, file: GatewayFile) {
     val feed = LocalFeedPlayer.current ?: return ReplyFile(item)
-    val load = LocalMediaLoader.current
+    val download = LocalFileDownload.current
     val openFile = LocalOpenFile.current
+    val notify = LocalNotice.current
     val playback = feed.playbackOf(item.source)
     val playing = playback?.playing == true
     val busy = feed.loading == item.source || playback != null && !playback.ready && playback.error == null
@@ -201,7 +211,10 @@ internal fun ReplyAudio(item: ReplyMedia, file: GatewayFile) {
                 IconButton(
                     if (playing) Lucide.Pause else Lucide.Play,
                     contentDescription = "${if (playing) "Pause" else "Play"} ${item.name}",
-                    onClick = { feed.toggle(item.source, video = false) { load(item.source) } },
+                    onClick = {
+                        // The pill has room for a word or two; the whole reason goes over the chat.
+                        feed.toggle(item.source, video = false) { download(file).also { if (it is FileDownload.Failed) notify(it.message) } }
+                    },
                     tint = Theme[colors][onAccent],
                     containerColor = Theme[colors][accent],
                 )
@@ -237,7 +250,7 @@ internal fun ReplyAudio(item: ReplyMedia, file: GatewayFile) {
                 thumb = 10.dp,
             )
         }
-        MediaMenu(item, onOpenFull = openFile?.let { open -> { open(file) } })
+        MediaMenu(item, file, onOpenFull = openFile?.let { open -> { open(file) } })
     }
 }
 
@@ -248,14 +261,14 @@ internal fun ReplyAudio(item: ReplyMedia, file: GatewayFile) {
 @Composable
 internal fun ReplyVideo(item: ReplyMedia, file: GatewayFile) {
     val feed = LocalFeedPlayer.current ?: return ReplyFile(item)
-    val load = LocalMediaLoader.current
+    val download = LocalFileDownload.current
     val openFile = LocalOpenFile.current
     val playback = feed.playbackOf(item.source)
     val playing = playback?.playing == true
     val busy = feed.loading == item.source || playback != null && !playback.ready && playback.error == null
-    val error = playback?.error ?: "Couldn't get ${item.name} from the gateway.".takeIf { feed.failed == item.source }
+    val error = playback?.error ?: feed.failure.takeIf { feed.failed == item.source }
     var scrub by remember(item.source) { mutableStateOf<Long?>(null) }
-    val toggle = { feed.toggle(item.source, video = true) { load(item.source) } }
+    val toggle = { feed.toggle(item.source, video = true) { download(file) } }
     // Sound with nothing to watch isn't what a film is for.
     DisposableEffect(feed, item.source) { onDispose { if (feed.source == item.source) feed.pause() } }
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
@@ -337,7 +350,7 @@ internal fun ReplyVideo(item: ReplyMedia, file: GatewayFile) {
                     openFile(file)
                 })
             }
-            MediaMenu(item, onOpenFull = null)
+            MediaMenu(item, file, onOpenFull = null)
         }
     }
 }
@@ -349,14 +362,14 @@ internal fun ReplyVideo(item: ReplyMedia, file: GatewayFile) {
  */
 @Composable
 internal fun ReplyPage(item: ReplyMedia, file: GatewayFile) {
-    val load = LocalMediaLoader.current
+    val download = LocalFileDownload.current
     val openFile = LocalOpenFile.current
     val density = LocalDensity.current
     var attempt by remember(item.source) { mutableIntStateOf(0) }
     var failed by remember(item.source) { mutableStateOf(false) }
     val html by produceState<String?>(null, item.source, attempt) {
         failed = false
-        value = withTimeoutOrNull(20_000) { load(item.source) }?.decodeToString()
+        value = (withTimeoutOrNull(20_000) { download(file) } as? FileDownload.Ready)?.bytes?.decodeToString()
         if (value == null) failed = true
     }
     var allowWeb by remember(item.source) { mutableStateOf(false) }
@@ -398,7 +411,7 @@ internal fun ReplyPage(item: ReplyMedia, file: GatewayFile) {
                 )
             }
             if (open != null) IconButton(Lucide.Maximize2, contentDescription = "Open ${item.name} full screen", onClick = open)
-            MediaMenu(item, onOpenFull = null)
+            MediaMenu(item, file, onOpenFull = null)
         }
         Box(
             Modifier
@@ -414,7 +427,7 @@ internal fun ReplyPage(item: ReplyMedia, file: GatewayFile) {
                         page,
                         file,
                         allowWeb = allowWeb,
-                        fetch = { linked -> load(linked.path) },
+                        fetch = { linked -> (download(linked) as? FileDownload.Ready)?.bytes },
                         onOpenFile = { linked -> openFile?.invoke(linked) },
                         onBlocked = { host -> if (host !in blocked) blocked += host },
                         modifier = Modifier.fillMaxSize(),
@@ -452,7 +465,7 @@ internal fun ReplyPage(item: ReplyMedia, file: GatewayFile) {
  */
 @Composable
 internal fun ReplySvg(item: ReplyMedia, file: GatewayFile?) {
-    val load = LocalMediaLoader.current
+    val download = LocalFileDownload.current
     val openFile = LocalOpenFile.current
     val density = LocalDensity.current
     val remoteHost = remember(item.source) { webHost(item.source).takeUnless { item.generated } }
@@ -478,7 +491,7 @@ internal fun ReplySvg(item: ReplyMedia, file: GatewayFile?) {
             // Data and web drawings aren't files; the page still needs an address of its own to be drawn at.
             file ?: GatewayFile("/${item.name.ifBlank { "drawing.svg" }}"),
             allowWeb = remoteHost != null,
-            fetch = { linked -> load(linked.path) },
+            fetch = { linked -> (download(linked) as? FileDownload.Ready)?.bytes },
             onOpenFile = {},
             onBlocked = {},
             modifier = Modifier.fillMaxSize(),
@@ -507,8 +520,8 @@ private val PAGE_MAX = 460.dp
 
 /** The rest of what can be done with a delivered file: open it full screen or in another app, save or share it. */
 @Composable
-private fun MediaMenu(item: ReplyMedia, onOpenFull: (() -> Unit)?) {
-    val load = LocalMediaLoader.current
+private fun MediaMenu(item: ReplyMedia, file: GatewayFile, onOpenFull: (() -> Unit)?) {
+    val download = LocalFileDownload.current
     val actions = rememberMediaActions()
     val notify = LocalNotice.current
     val scope = rememberCoroutineScope()
@@ -516,8 +529,10 @@ private fun MediaMenu(item: ReplyMedia, onOpenFull: (() -> Unit)?) {
 
     fun withBytes(action: suspend (ByteArray) -> Unit) {
         scope.launch {
-            val bytes = load(item.source)
-            if (bytes == null) notify("Couldn't get ${item.name} from the gateway.") else action(bytes)
+            when (val got = download(file)) {
+                is FileDownload.Ready -> action(got.bytes)
+                is FileDownload.Failed -> notify(got.message)
+            }
         }
     }
 

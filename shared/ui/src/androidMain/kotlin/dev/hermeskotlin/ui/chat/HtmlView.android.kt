@@ -29,8 +29,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 // Scripts run: the pages agents make are charts and small tools. What keeps them in their box is the rest
-// of the setup: no cookies or sign-in, no file or content access, no bridge to the app, and every request
-// either answered by the view itself from the gateway or held back until the person allows the web.
+// of the setup: no cookies or sign-in, no file or content access, no bridge to the app, gateway files only
+// from the page's own folder, links followed only on a tap, and every other request held back until the
+// person allows the web. A WebView has no switch for WebRTC or for a preconnect's lookup, so a page can still
+// reach a site that way; all it could send is what its own folder holds.
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal actual fun HtmlView(
@@ -78,13 +80,14 @@ internal actual fun HtmlView(
                     if (url.host.equals(PAGE_HOST, ignoreCase = true)) {
                         if (!request.method.equals("GET", ignoreCase = true)) return status(405, "Method Not Allowed")
                         val target = url.encodedPath?.let(::gatewayFileOfPage) ?: return status(404, "Not Found")
+                        if (!pageMayRead(file, target)) return status(403, "Forbidden")
                         val bytes = fetched[target.path]
                             ?: runBlocking { withTimeoutOrNull(FETCH_TIMEOUT_MS) { fetchNow(target) } }?.also { fetched[target.path] = it }
                             ?: return status(404, "Not Found")
                         return WebResourceResponse(mimeOf(target.name), null, ByteArrayInputStream(bytes))
                     }
                     val scheme = url.scheme?.lowercase()
-                    if ((scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss") && !webAllowed.get()) {
+                    if ((scheme == "http" || scheme == "https") && !webAllowed.get()) {
                         val host = url.host ?: "the web"
                         main.post { blockedNow(host) }
                         return status(403, "Held back")
@@ -110,18 +113,14 @@ internal actual fun HtmlView(
                     // Frames load where they are; only the page itself moving away is a link to follow.
                     if (!request.isForMainFrame) return false
                     val url = request.url
-                    if (url.host.equals(PAGE_HOST, ignoreCase = true)) {
-                        val target = url.encodedPath?.let(::gatewayFileOfPage)
-                        if (target != null && target.path != file.path) main.post { openNow(target) }
-                        return true
-                    }
-                    when (url.scheme?.lowercase()) {
-                        "http", "https", "mailto", "tel" -> try {
+                    when (val link = pageLinkOf(file, url.scheme, url.host, url.encodedPath, tapped = request.hasGesture())) {
+                        is PageLink.File -> main.post { openNow(link.file) }
+                        PageLink.App -> try {
                             context.startActivity(Intent(Intent.ACTION_VIEW, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         } catch (_: ActivityNotFoundException) {
                         }
+                        PageLink.Stay -> Unit
                     }
-                    // Anything else (`intent:`, an app's own scheme) isn't the page's to open.
                     return true
                 }
             }
@@ -135,7 +134,7 @@ internal actual fun HtmlView(
     }
     LaunchedEffect(webView, html, allowWeb) {
         webAllowed.set(allowWeb)
-        webView.loadDataWithBaseURL(pageUrl, html, "text/html", "utf-8", null)
+        webView.loadDataWithBaseURL(pageUrl, guardedPage(html, allowWeb), "text/html", "utf-8", null)
     }
     AndroidView(factory = { webView }, modifier = modifier)
 }

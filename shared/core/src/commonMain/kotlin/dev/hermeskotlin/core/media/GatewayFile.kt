@@ -207,7 +207,7 @@ enum class GatewayFileKind(val label: String) {
                 ext in TABLE -> Table
                 ext in IMAGE -> Image
                 ext in HTML -> Html
-                ext == "svg" || ext == "svgz" -> Svg
+                ext == "svg" -> Svg
                 ext == "pdf" -> Pdf
                 ext in AUDIO -> Audio
                 ext in VIDEO -> Video
@@ -224,7 +224,7 @@ enum class GatewayFileKind(val label: String) {
         private val TABLE = setOf("csv", "tsv")
         // What Android decodes: HEIC/HEIF from Android 9, AVIF from 12; on an older phone the viewer says it
         // can't show the picture and still saves or shares it. TIFF has a small decoder of Herald's own (baseline
-        // strips only; anything else gets the same message), and SVG is shown as code.
+        // strips only; anything else gets the same message). SVG is a kind of its own, drawn by the web view.
         private val IMAGE = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif", "ico", "tif", "tiff")
         private val TEXT = setOf("txt", "log", "text", "out", "err", "rst", "adoc", "org", "env", "lock", "jsonl", "ndjson")
         private val HTML = setOf("html", "htm", "xhtml")
@@ -243,6 +243,8 @@ enum class GatewayFileKind(val label: String) {
             "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "tar", "apk", "aab", "jar", "exe", "dll", "so", "dylib", "bin",
             "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub", "avi", "wmv", "psd", "ttf", "otf",
             "woff", "woff2", "sqlite", "db",
+            // A gzipped drawing: the web view would get the gateway's compressed bytes, not a drawing.
+            "svgz",
         )
     }
 }

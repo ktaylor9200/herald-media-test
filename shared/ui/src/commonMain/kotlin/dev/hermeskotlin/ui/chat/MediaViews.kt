@@ -86,6 +86,14 @@ internal val LocalMediaLoader = staticCompositionLocalOf<suspend (String) -> Byt
 /** Opens the full-screen viewer for a picture. */
 internal val LocalOpenImage = staticCompositionLocalOf<(ViewerImage) -> Unit> { {} }
 
+/**
+ * Fetches a whole file on the gateway through the chat's profile, as the viewer does (see
+ * `ChatViewModel.downloadFile`): capped, and not kept, so a recording doesn't sit in the pictures' cache.
+ */
+internal val LocalFileDownload = staticCompositionLocalOf<suspend (GatewayFile) -> FileDownload> {
+    { FileDownload.Failed("Not connected to a gateway.") }
+}
+
 /** Opens a file on the gateway in the file viewer; null where there's no viewer to open (a preview). */
 internal val LocalOpenFile = staticCompositionLocalOf<((GatewayFile) -> Unit)?> { null }
 

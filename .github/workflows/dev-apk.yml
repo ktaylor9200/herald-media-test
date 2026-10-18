@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # Pinned like the actions: ubuntu-latest moves to Ubuntu 26 from 2026-10-19.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,7 +32,7 @@ jobs:
       # The dev build is signed with the debug key. Keeping the same one between runs lets each APK
       # install over the last instead of asking to uninstall first.
       - name: Reuse the debug key
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.android/debug.keystore
           key: herald-dev-debug-keystore-v1

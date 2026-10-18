@@ -44,10 +44,11 @@ import dev.hermeskotlin.designsystem.warningSoft
 
 /**
  * [html] drawn as a page in a web view of its own: scripts run, but the view holds no sign-in, reads no
- * files on the phone, and fetches only from the gateway (the page's own folder, as [fetch] reads it) until
- * [allowWeb]. Each site it was kept from goes to [onBlocked], once per load. A tapped link to another file
- * on the gateway goes to [onOpenFile]; one to the web opens in the browser. [onContentHeight] hears how tall
- * the page draws, in pixels, as it loads and settles, for a card in the chat to size itself to it.
+ * files on the phone, and fetches only the gateway files [pageMayRead] lets it have (as [fetch] reads them)
+ * until [allowWeb]. Each site it was kept from goes to [onBlocked], once per load. A tapped link to another
+ * file on the gateway goes to [onOpenFile]; one to the web opens in the browser (see [pageLinkOf]).
+ * [onContentHeight] hears how tall the page draws, in pixels, as it loads and settles, for a card in the
+ * chat to size itself to it.
  */
 @Composable
 internal expect fun HtmlView(
@@ -138,7 +139,65 @@ internal fun svgPage(src: String): String {
 
 /** A reply's picture that's a drawing: an `.svg` file or address, or an SVG `data:` URL. */
 internal fun isSvgSource(source: String): Boolean =
-    source.startsWith("data:image/svg+xml") || source.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase() in setOf("svg", "svgz")
+    source.startsWith("data:image/svg+xml") || source.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase() == "svg"
+
+/**
+ * Whether the page at [page] may read [target] for itself: a file in the page's own folder or in a folder
+ * under it, which is what its relative links reach. Anything above that folder, and every hidden file or
+ * folder (`.env`, `.ssh/`), is out of its reach, so a page saved from the web can't read the gateway's
+ * other files and hand them to a site.
+ */
+internal fun pageMayRead(page: GatewayFile, target: GatewayFile): Boolean {
+    if (target.path == page.path) return true
+    val folder = page.folder + "/"
+    if (!target.path.startsWith(folder)) return false
+    // Split again: a segment the page escaped (`..%2F`) comes back holding a `/` of its own.
+    return target.path.substring(folder.length).split('/').none { it.isEmpty() || it.startsWith(".") || '\\' in it }
+}
+
+/** Where a page moving away from itself sends the view. */
+internal sealed interface PageLink {
+    /** Another file on the gateway, for the viewer. */
+    data class File(val file: GatewayFile) : PageLink
+
+    /** A web, mail or phone link, for the app that opens it. */
+    data object App : PageLink
+
+    /** Nowhere: the page stays as it is. */
+    data object Stay : PageLink
+}
+
+/**
+ * Where the page at [page] moving to an address ([scheme], [host] and still-escaped [encodedPath], as the view
+ * parsed it) goes. Only a tap ([tapped]) follows a link: a page that moves itself could put what it read in a
+ * site's address, and opening that in the browser would hand it over. Other schemes (`intent:`, an app's own)
+ * aren't the page's to open.
+ */
+internal fun pageLinkOf(page: GatewayFile, scheme: String?, host: String?, encodedPath: String?, tapped: Boolean): PageLink {
+    if (!tapped) return PageLink.Stay
+    if (host.equals(PAGE_HOST, ignoreCase = true)) {
+        val target = encodedPath?.let(::gatewayFileOfPage) ?: return PageLink.Stay
+        return if (target.path == page.path) PageLink.Stay else PageLink.File(target)
+    }
+    return if (scheme?.lowercase() in setOf("http", "https", "mailto", "tel")) PageLink.App else PageLink.Stay
+}
+
+/**
+ * [html] as the view loads it. Until the web is allowed, a content policy goes first so the page can't open
+ * connections of its own (WebSockets, beacons): the view's request filter never sees those. It goes after a
+ * doctype, which must come first or the page is laid out in quirks mode.
+ */
+internal fun guardedPage(html: String, allowWeb: Boolean): String {
+    if (allowWeb) return html
+    val at = LEADING_DOCTYPE.find(html)?.range?.last?.plus(1) ?: 0
+    return html.substring(0, at) + PAGE_POLICY + html.substring(at)
+}
+
+/** A doctype and what may stand before it: a byte-order mark, space, an XML declaration, comments. */
+private val LEADING_DOCTYPE = Regex("""^[\s\uFEFF]*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>""", RegexOption.IGNORE_CASE)
+
+/** Connections only to the made-up site, which the view answers itself, and to data the page holds. */
+private const val PAGE_POLICY = """<meta http-equiv="Content-Security-Policy" content="connect-src https://$PAGE_HOST data: blob:">"""
 
 /** `cdn.example.com`, `a.com and b.com`, `a.com, b.com and 3 more`. */
 internal fun blockedSites(hosts: List<String>): String = when (hosts.size) {
