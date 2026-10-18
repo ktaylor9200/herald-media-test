@@ -24,6 +24,7 @@ import androidx.compose.runtime.Stable
 import dev.hermeskotlin.core.chat.linkFileUris
 import dev.hermeskotlin.core.media.GatewayFile
 import dev.hermeskotlin.core.media.GatewayFileKind
+import dev.hermeskotlin.core.media.LinkPreview
 import dev.hermeskotlin.designsystem.components.LocalFileLinks
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
@@ -672,6 +673,8 @@ internal fun ChatView(
                 typeAfterVoice = false
                 if (composerShown) composerFocus.requestFocus()
             }
+            // A new loader each time the link comes back, so cards that failed offline try again; good ones come from the cache.
+            val linkPreviewLoader = remember<suspend (String) -> LinkPreview?>(actions, connected) { { url -> actions.loadLinkPreview(url) } }
             val commentHost = remember(comments, actions, composerShown) {
                 if (!composerShown) return@remember null
                 object : CommentHost {
@@ -696,6 +699,7 @@ internal fun ChatView(
                     if (state.historyLoaded && state.messages.isNotEmpty()) {
                         CompositionLocalProvider(
                             LocalMediaLoader provides actions::loadMedia,
+                            LocalLinkPreviewLoader provides linkPreviewLoader,
                             LocalOpenImage provides onViewImage,
                             LocalFileLinks provides { link -> GatewayFile.fromLink(link)?.let(onOpenFile) },
                             LocalOpenFile provides onOpenFile,
@@ -1354,6 +1358,7 @@ private fun Messages(
         }
     }
     val unservable = remember(messages) { unservableEchoes(messages) }
+    val unreadLine = remember(messages, unreadFrom, readUpTo) { unreadLineKey(messages, unreadFrom, readUpTo) }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
@@ -1365,10 +1370,10 @@ private fun Messages(
                 // Rows of one exchange with another bot are tied together by a line in that bot's colour.
                 val partner = partners.getOrNull(index)
                 // The "New messages" line breaks the tie: it never runs through it.
-                val divided = message.key == unreadFrom
+                val divided = message.key == unreadLine
                 val linkedAbove = partner != null && !divided && partners.getOrNull(index - 1) == partner
                 val linkedBelow = partner != null && partners.getOrNull(index + 1) == partner &&
-                    messages.getOrNull(index + 1)?.key != unreadFrom
+                    messages.getOrNull(index + 1)?.key != unreadLine
                 val rail = partner?.let { name -> faces.find(name)?.let { Color(0xFF000000 or botLook(it).color.toLong()) } }
                 Column {
                     // The line marking where the new messages start sits on top of the first of them.
@@ -2035,6 +2040,7 @@ private fun AssistantReply(
                 MarkdownText(remember(text) { linkFileUris(text) }, streaming = message.streaming)
             }
         }
+        if (settings.showLinkPreviews && !message.streaming) LinkPreviewCards(text)
         if (media.isNotEmpty()) ReplyMediaList(media)
         when (message.outcome) {
             TurnOutcome.Error -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2139,6 +2145,17 @@ private fun UnreadDivider(modifier: Modifier = Modifier) {
  */
 internal fun firstUnreadKey(messages: List<ChatMessage>, readUpTo: Double): String? =
     messages.firstOrNull { it.isNewerThan(readUpTo) }?.key
+
+/**
+ * The message the "New messages" line sits on: the one placed for this visit ([unreadFrom]), or the first new message
+ * now once that one is gone or no longer new. A running turn's saved step folds into the live reply that repeats it,
+ * and splits off the answer before it when its prompt doesn't show, which leaves that answer's key and time.
+ */
+internal fun unreadLineKey(messages: List<ChatMessage>, unreadFrom: String?, readUpTo: Double?): String? {
+    if (unreadFrom == null || readUpTo == null) return unreadFrom
+    if (messages.firstOrNull { it.key == unreadFrom }?.isNewerThan(readUpTo) == true) return unreadFrom
+    return firstUnreadKey(messages, readUpTo)
+}
 
 /** What to do next about the "New messages" line, given what is loaded so far. */
 internal sealed interface UnreadLineStep {

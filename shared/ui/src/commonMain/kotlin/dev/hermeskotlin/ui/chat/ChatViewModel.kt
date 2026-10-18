@@ -25,6 +25,8 @@ import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.SavedGateway
 import dev.hermeskotlin.core.media.GatewayFile
+import dev.hermeskotlin.core.media.LinkPreview
+import dev.hermeskotlin.core.media.LinkPreviews
 import dev.hermeskotlin.core.media.MediaApi
 import dev.hermeskotlin.core.network.ApiResult
 import dev.hermeskotlin.core.models.ModelCatalog
@@ -192,6 +194,7 @@ class ChatViewModel(
     private val seen: SeenStore? = null,
     /** The threads, so `/new` in a thread's chat starts the thread fresh instead of leaving it. */
     private val threads: ThreadsRepository? = null,
+    private val linkPreviews: LinkPreviews? = null,
 ) : ViewModel(), ChatActions {
 
     /** Dictation and voice chat for the open chat. */
@@ -399,7 +402,8 @@ class ChatViewModel(
     /**
      * The user is leaving this chat, for another one or out of the app: everything in it up to now counts as
      * read, so a reply that comes in meanwhile (and its notification) is new to them. The lists only record a
-     * look when a chat is tapped there, which misses what came in while it stayed open.
+     * look when a chat is tapped there, which misses what came in while it stayed open. A turn still running
+     * then makes its reply new even in a chat from a messaging platform, as Desktop's finished-turn dot does.
      */
     fun markLooked() {
         val target = target ?: return
@@ -407,7 +411,7 @@ class ChatViewModel(
         val id = state.storedSessionId ?: return
         // The machinery's rows (deliveries, routines) count too: they move the chat's activity on as well.
         val newest = state.messages.mapNotNull { it.sentAt ?: (it as? ChatMessage.Event)?.timestamp }.maxOrNull() ?: return
-        viewModelScope.launch { seen?.markLooked(target.gateway.gatewayUrl, id, newest, target.profile) }
+        viewModelScope.launch { seen?.markLooked(target.gateway.gatewayUrl, id, newest, target.profile, running = state.running) }
     }
 
     fun open(target: ChatTarget) {
@@ -644,6 +648,8 @@ class ChatViewModel(
     }
 
     private val mediaCache = mutableMapOf<String, ByteArray>()
+
+    override suspend fun loadLinkPreview(url: String): LinkPreview? = linkPreviews?.load(url)
 
     /**
      * The bytes behind a picture or file the chat shows: a gateway path (`@image:` in a stored prompt,
