@@ -76,20 +76,21 @@ and Share.
 - Errors go through `ChatRequest.Notice`.
 
 ## Device-tested
-All of it is confirmed on the person's phone, up to the 2026-10-18 review fixes:
+All of it is confirmed on the person's phone:
 - Round 1: the viewer (HTML, audio and video full screen, Open).
 - Round 2: in-feed media (the audio pill, inline video, inline pages).
 - The speaker button (read aloud) works as designed.
 - SVG drawings work in the chat feed and in the full-screen viewer (Preview/Source).
-
-**To check on the phone after the 2026-10-18 review fixes** (pilot APK from that date):
-- A page with its own `style.css`/`script.js`/`data.json` beside it (or in a subfolder) still draws, inline and full
-  screen. One that reads `../x` or a hidden file now gets nothing for it.
-- Links in a full-screen page still open on a tap (another gateway file, a web link). Nothing opens by itself.
-- A page that uses a CDN still shows **Load**, and works after it.
-- Audio, video and pages in the feed load as before; an over-64 MB file says so.
-- Dictating while a reply is read aloud stops the reading; dictating pauses a recording playing in the feed.
-- The APK installs over the last Herald Dev (same debug key).
+- Round 3 (2026-10-18, the review fixes, pilot APK of that day), all as expected:
+  - A test page read its own `style.css` and `sub/data.json` and was refused `../outside.txt` and `.hidden.txt`, also
+    after **Load**.
+  - Its WebSocket was blocked until **Load**, Chart.js waited for **Load**, a scripted move to a site did nothing, and a
+    tapped link opened the browser.
+  - An MP3 and an MP4 played in the feed. A 70 MB film said it's over 64 MB. An SVG drew, and an `.svgz` was a file card.
+  - Dictating stopped a reading and paused the feed's player. Opening a film full screen stopped a reading.
+  - The APK installed over the last Herald Dev.
+- Read aloud failed for a while after the server's Hermes v0.22.2 switch (2026-10-17): the new install lacked Hermes's
+  `tts-premium` extra (ElevenLabs). That was a server problem, not the app's, and it was fixed on the server the same day.
 
 ## Herald push plugin (`herald-push`)
 Checked 2026-10-18 against `Giton22/hermes-herald-push` (0.4.2; `master` = the pinned `PLUGIN_REF` 45e76c0 in content).
@@ -123,6 +124,5 @@ until the push brief after the pilot review. Its ntfy calls carry no auth, so it
 
 ## Next likely steps
 1. Get device feedback on the pilot APK and fix what comes up on the branch that owns it, then merge into `pilot`.
-2. Device-check the review fixes (list above).
-3. If going upstream: open issues on Giton22/herald, then cherry-pick the feature commits onto branches from
+2. If going upstream: open issues on Giton22/herald, then cherry-pick the feature commits onto branches from
    `upstream/master`. Add before/after screenshots from `PreviewGalleryActivity` and tick ROADMAP items.
