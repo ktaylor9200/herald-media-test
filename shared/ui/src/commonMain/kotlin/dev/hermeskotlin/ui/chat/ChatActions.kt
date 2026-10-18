@@ -5,6 +5,7 @@ import dev.hermeskotlin.core.chat.ChatMessage
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.ControlAction
 import dev.hermeskotlin.core.chat.InputRequest
+import dev.hermeskotlin.core.media.GatewayFile
 import dev.hermeskotlin.core.media.LinkPreview
 import dev.hermeskotlin.core.settings.RunningSend
 import dev.hermeskotlin.core.slash.SlashSuggestion
@@ -53,6 +54,12 @@ interface ChatActions {
 
     /** The bytes behind a picture or file in the chat, or null when it can't be had. */
     suspend fun loadMedia(source: String): ByteArray?
+
+    /**
+     * A whole gateway file through the chat's profile, as the viewer fetches it, or why it can't be had: for
+     * the recordings, films and pages the feed plays and draws.
+     */
+    suspend fun downloadFile(file: GatewayFile): FileDownload = FileDownload.Failed("Not connected to a gateway.")
 
     /** Webpage metadata and thumbnail, or null when unavailable. */
     suspend fun loadLinkPreview(url: String): LinkPreview? = null
