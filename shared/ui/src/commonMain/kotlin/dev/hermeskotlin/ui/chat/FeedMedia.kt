@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -43,7 +44,10 @@ import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.Download
+import com.composables.icons.lucide.FileImage
 import com.composables.icons.lucide.EllipsisVertical
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Globe
@@ -58,6 +62,7 @@ import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.chat.ReplyMedia
 import dev.hermeskotlin.core.media.GatewayFile
+import dev.hermeskotlin.core.media.GatewayFileKind
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.caption
 import dev.hermeskotlin.designsystem.colors
@@ -160,6 +165,100 @@ internal class FeedPlayer(private val scope: CoroutineScope) {
 
     private companion object {
         const val LOAD_TIMEOUT_MS = 60_000L
+    }
+}
+
+/**
+ * What a reply's drawn item is: a page, a drawing or a `::preview` widget, each a live web view once shown. They
+ * come into the feed folded, as a card at their place in the reply, so a long chat doesn't draw them all at once.
+ */
+internal enum class Fold(val label: String) {
+    Page("Web page"),
+    Drawing("Drawing"),
+    Widget("Widget"),
+}
+
+/**
+ * How [item] comes folded, or null for what shows as it is: pictures, recordings and films (which fetch nothing
+ * until Play) and files. [widget] says the feed draws it as a `::preview` widget. A drawing from the web already
+ * waits behind its "tap to load" card, which is folded enough.
+ */
+internal fun foldOf(item: ReplyMedia, file: GatewayFile?, widget: Boolean): Fold? = when {
+    widget -> Fold.Widget
+    isSvgSource(item.source) -> Fold.Drawing.takeIf { webHost(item.source) == null || item.generated }
+    item.isImage || file?.kind == GatewayFileKind.Image -> null
+    file?.kind == GatewayFileKind.Html -> Fold.Page
+    else -> null
+}
+
+/** The drawn items shown in this chat's feed, by source: shown stays shown while the chat is open, scrolled away or not. */
+@Stable
+internal class ShownItems {
+    private val shown = mutableStateMapOf<String, Boolean>()
+
+    fun isShown(source: String): Boolean = shown[source] == true
+
+    fun toggle(source: String) {
+        if (isShown(source)) shown.remove(source) else shown[source] = true
+    }
+}
+
+/** The open chat's [ShownItems]; null where there's no chat (a preview), and each card keeps its own. */
+internal val LocalShownItems = staticCompositionLocalOf<ShownItems?> { null }
+
+/**
+ * A drawn item ([fold]) at its place in the reply: folded, a card with its name and kind that shows it here on a tap
+ * (and opens it full screen from the corner); shown, [content] with Hide under it. Nothing is fetched or drawn while
+ * it's folded.
+ */
+@Composable
+internal fun FoldedItem(item: ReplyMedia, fold: Fold, file: GatewayFile?, content: @Composable () -> Unit) {
+    val items = LocalShownItems.current ?: remember { ShownItems() }
+    val openFile = LocalOpenFile.current
+    if (items.isShown(item.source)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            content()
+            Row(Modifier.widthIn(max = 560.dp).fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Button(
+                    "Hide",
+                    onClick = { items.toggle(item.source) },
+                    leadingIcon = Lucide.ChevronUp,
+                    size = ButtonSize.Small,
+                    variant = ButtonVariant.Ghost,
+                )
+            }
+        }
+        return
+    }
+    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    Row(
+        Modifier
+            .widthIn(max = 420.dp)
+            .fillMaxWidth()
+            .clip(shape)
+            .border(1.dp, Theme[colors][stroke], shape)
+            .background(Theme[colors][surface])
+            .clickable(onClickLabel = "Show ${item.name} here") { items.toggle(item.source) }
+            .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        UnstyledIcon(
+            if (fold == Fold.Drawing) Lucide.FileImage else Lucide.Globe,
+            contentDescription = null,
+            tint = Theme[colors][textTertiary],
+            modifier = Modifier.size(22.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(item.name, style = Theme[typography][label], color = Theme[colors][textColor], maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${fold.label} · Tap to show", style = Theme[typography][caption], color = Theme[colors][textTertiary])
+        }
+        if (file != null && openFile != null) {
+            IconButton(Lucide.Maximize2, contentDescription = "Open ${item.name} full screen", onClick = { openFile(file) })
+        }
+        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+            UnstyledIcon(Lucide.ChevronDown, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(18.dp))
+        }
     }
 }
 
