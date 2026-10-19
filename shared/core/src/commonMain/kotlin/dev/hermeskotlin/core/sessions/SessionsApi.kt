@@ -44,6 +44,8 @@ class SessionsApi(private val client: HttpClient) {
         offset: Int = 0,
         filter: SessionListFilter = SessionListFilter.Recent,
         profile: String? = null,
+        /** The sources left out; the filter's own unless a list asks for more (a bot's side chats). */
+        excludeSources: List<String> = filter.excludeSources,
     ): ApiResult<SessionPage> = apiCall {
         client.get(url.resolve("api/sessions")) {
             profile?.let { parameter("profile", it) }
@@ -52,7 +54,7 @@ class SessionsApi(private val client: HttpClient) {
             parameter("archived", filter.archived.wire)
             parameter("order", "recent")
             filter.source?.let { parameter("source", it) }
-            if (filter.excludeSources.isNotEmpty()) parameter("exclude_sources", filter.excludeSources.joinToString(","))
+            if (excludeSources.isNotEmpty()) parameter("exclude_sources", excludeSources.joinToString(","))
         }
     }.map { it.body<SessionPage>() }
 
