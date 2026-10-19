@@ -619,6 +619,8 @@ internal fun ChatView(
     onNextChat: (() -> Unit)? = null,
 ) {
     val feed = feedPlayer ?: rememberFeedPlayer()
+    // The pages and drawings shown in this chat; another chat starts with them all folded.
+    val shownItems = remember(state.storedSessionId) { ShownItems() }
     Box(
         Modifier
             .fillMaxSize()
@@ -709,6 +711,7 @@ internal fun ChatView(
                             LocalFileLinks provides { link -> GatewayFile.fromLink(link)?.let(onOpenFile) },
                             LocalOpenFile provides onOpenFile,
                             LocalFeedPlayer provides feed,
+                            LocalShownItems provides shownItems,
                             LocalNotice provides onNotice,
                             LocalSubagents provides SubagentContext(state.subagents, actions::stopSubagent),
                             LocalCommentHost provides commentHost,

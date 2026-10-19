@@ -121,17 +121,22 @@ internal fun ReplyMediaList(media: List<ReplyMedia>) {
                 val widget = widgetFile(item)
                 val files = LocalWidgetFiles.current
                 val file = remember(item.source) { GatewayFile(item.gatewayPath).takeIf { item.onGateway } }
-                when {
-                    // A `::preview` page is upstream's widget, drawn in Desktop's theme in its own sandbox.
-                    widget != null && files != null -> InlineWidget(item, widget, files)
-                    isSvgSource(item.source) -> ReplySvg(item, file)
-                    item.isImage || file?.kind == GatewayFileKind.Image -> ReplyImage(item)
-                    file == null -> ReplyFile(item)
-                    file.kind == GatewayFileKind.Audio -> ReplyAudio(item, file)
-                    file.kind == GatewayFileKind.Video -> ReplyVideo(item, file)
-                    file.kind == GatewayFileKind.Html -> ReplyPage(item, file)
-                    else -> ReplyFile(item)
+                val drawn: @Composable () -> Unit = {
+                    when {
+                        // A `::preview` page is upstream's widget, drawn in Desktop's theme in its own sandbox.
+                        widget != null && files != null -> InlineWidget(item, widget, files)
+                        isSvgSource(item.source) -> ReplySvg(item, file)
+                        item.isImage || file?.kind == GatewayFileKind.Image -> ReplyImage(item)
+                        file == null -> ReplyFile(item)
+                        file.kind == GatewayFileKind.Audio -> ReplyAudio(item, file)
+                        file.kind == GatewayFileKind.Video -> ReplyVideo(item, file)
+                        file.kind == GatewayFileKind.Html -> ReplyPage(item, file)
+                        else -> ReplyFile(item)
+                    }
                 }
+                // Pages, drawings and widgets come folded: a live web view each, drawn only once asked for.
+                val fold = foldOf(item, file, widget = widget != null && files != null)
+                if (fold != null) FoldedItem(item, fold, file, drawn) else drawn()
             }
         }
     }
