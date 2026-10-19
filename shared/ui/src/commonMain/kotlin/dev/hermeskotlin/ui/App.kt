@@ -440,6 +440,7 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                     }
                 },
                 selectedRunning = chatState.running,
+                openProfile = route.target.profile,
                 inboxLink = shownInboxLink,
                 onInboxLinkTaken = { link ->
                     // A newer link may be handed on already: it is left for the sidebar to take.
