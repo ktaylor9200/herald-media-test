@@ -119,7 +119,8 @@ All of it is confirmed on the person's phone:
 - Hidden is the last thing in the Bots list.
 - Open Vivian's Bot Chat: "Side chats · Vivian" lists her other chats, no scheduled runs or "Run claude --version"
   probes. Open one: the drawer closes, reopening it shows the Bots tab with that row filled and Vivian's card outlined.
-- From that side chat, the header's New chat starts a chat with Vivian (her name/face in the header); so does `/new`.
+- From that side chat, the header's New chat (and `/new`) starts a chat with Vivian: Vivian's card stays outlined, and
+  after the first message it's listed under Side chats · Vivian.
 - Fold the section: only the open side chat stays. Long press a row: rename, pin, archive, delete work.
 - Close Herald in a side chat and reopen it: it comes back to that chat.
 - Inline `::preview` widgets (upstream's) and `MEDIA:` pages, audio and video still draw as before.
