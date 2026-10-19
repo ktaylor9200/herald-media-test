@@ -27,7 +27,7 @@ Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` 
 - Media: `8f57533` viewer for HTML/audio/video and opening delivered files, `4740607` seek thumb fix,
   `4f8448e` in-feed audio/video/pages, `25b304c` SVG; review fixes `5271cdd` a page reads only its own folder and
   leaves it only on a tap, `6cf4101` no WebSockets before Load (with `ed9f0e9`, its build fix), `926a035` `.svgz` is a plain file, `db85209` the
-  feed fetches through the chat's profile with the 64 MB cap.
+  feed fetches through the chat's profile with the 64 MB cap; `4a5b061` pages, drawings and widgets come folded.
 - Read aloud: `0272d39`; review fix `8c3daea` dictating stops a reading.
 - Side chats (fork only): `fe0919b` Hidden below the rooms, `f4942a8` New chat beside the open chat, `a3e3daa` a
   side chat reopens on launch, `868cd03` Side chats.
@@ -40,6 +40,10 @@ PDF, audio and video, which the viewer fetches through `/api/fs/download` (profi
 `Code`.
 
 **Feed** (`ReplyMediaList` in `MediaViews.kt` routes to `FeedMedia.kt`):
+- **Folded until asked** (the person's request, 2026-10-19): pages, drawings and `::preview` widgets (`foldOf`) come as a
+  card at their place in the reply, with a full-screen button; a tap shows the item (`FoldedItem`, Hide under it).
+  Nothing is fetched or drawn while folded. What's shown stays shown while the chat is open (`ShownItems`, per chat).
+  Pictures, recordings and films (nothing loads until Play) and web drawings (behind "tap to load") aren't folded.
 - **Audio**: `ReplyAudio` is a 56dp pill with play/pause, the name over a `SeekBar`, the time, and a ⋮ menu (full screen,
   open in another app, save, share).
 - **Video**: `ReplyVideo` plays in place on a `TextureView`. It has a scrubber and a full-screen button, and pauses when
@@ -123,7 +127,12 @@ All of it is confirmed on the person's phone:
   after the first message it's listed under Side chats · Vivian.
 - Fold the section: only the open side chat stays. Long press a row: rename, pin, archive, delete work.
 - Close Herald in a side chat and reopen it: it comes back to that chat.
-- Inline `::preview` widgets (upstream's) and `MEDIA:` pages, audio and video still draw as before.
+- Inline `::preview` widgets (upstream's) and `MEDIA:` pages, audio and video still draw as before. Confirmed on the
+  phone 2026-10-19, with the side chats.
+
+**To check (folding, pilot APK after 2026-10-19's side chats):** a page, a drawing and a `::preview` widget each come
+as a folded card; a tap shows it in place, Hide folds it, the corner button opens it full screen; scrolling away and
+back keeps a shown one shown; another chat starts with all folded.
 
 ## Herald push plugin (`herald-push`)
 Checked 2026-10-18 against `Giton22/hermes-herald-push` (0.4.2; `master` = the pinned `PLUGIN_REF` 45e76c0 in content).
