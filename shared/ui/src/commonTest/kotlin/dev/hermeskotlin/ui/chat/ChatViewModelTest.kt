@@ -5,6 +5,7 @@ import dev.hermeskotlin.core.bots.BotsApi
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import dev.hermeskotlin.core.chat.LastChat
 import dev.hermeskotlin.core.chat.ChatHost
 import dev.hermeskotlin.core.chat.ChatMessage
 import dev.hermeskotlin.core.chat.ComposeDraft
@@ -208,6 +209,18 @@ class ChatViewModelTest {
         assertNull(ChatTarget(gateway, "b1", "Side", profile = "side", bot = BotIdentity("side", "Side")).rememberedIn)
         assertEquals("work", ChatTarget(gateway, "b1", "Side", profile = "side", bot = BotIdentity("side", "Side", chatsProfile = "work")).rememberedIn)
         assertEquals("work", ChatTarget(gateway, "s1", "Chat", profile = "work").rememberedIn)
+    }
+
+    @Test
+    fun aBotsOtherChatIsRememberedWhereTheChatsListWasAndReopensInTheBotsProfile() {
+        // One of Vivian's other chats, opened from the Bots list while the Chats list was on "work".
+        val side = ChatTarget(gateway, "side-1", "Trip plans", profile = "vivian", listedIn = "work")
+        assertEquals("work", side.rememberedIn)
+        assertEquals(LastChat("side-1", "Trip plans", profile = "vivian"), lastChatOf(side, "side-1", "Trip plans"))
+        // A chat in the Chats list's own profile, and a bot's Bot Chat, need no profile of their own.
+        assertNull(lastChatOf(ChatTarget(gateway, "s1", "Chat", profile = "work"), "s1", "Chat").profile)
+        val botChat = ChatTarget(gateway, "b1", "Vivian", profile = "vivian", bot = BotIdentity("vivian", "Vivian", chatsProfile = "work"))
+        assertEquals(LastChat("b1", "Vivian", bot = "vivian", botLabel = "Vivian"), lastChatOf(botChat, "b1", "Vivian"))
     }
 
     private fun attachment(id: String) = OutgoingAttachment(id, "$id.txt", "text/plain", byteArrayOf(1))

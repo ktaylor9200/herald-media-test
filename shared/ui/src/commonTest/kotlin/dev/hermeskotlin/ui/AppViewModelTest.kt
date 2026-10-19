@@ -170,6 +170,21 @@ class AppViewModelTest {
     }
 
     @Test
+    fun aBotsOtherChatLeftOpenReopensInTheBotsProfile() = runTest {
+        gateways.save(home)
+        signedIn(home)
+        ProfileStore(store).set(home.gatewayUrl, "work")
+        lastChats.set(home.gatewayUrl, LastChat("side-1", "Trip plans", profile = "vivian"), "work")
+
+        val chat = viewModel().awaitChat(home).target
+
+        assertEquals("side-1", chat.storedSessionId)
+        assertEquals("vivian", chat.profile)
+        // Still remembered where the Chats list is, so leaving it there keeps it for the next launch too.
+        assertEquals("work", chat.rememberedIn)
+    }
+
+    @Test
     fun switchingKeepsBothSignedInAndReopensEachOnesChat() = runTest {
         gateways.save(home)
         gateways.save(work)
