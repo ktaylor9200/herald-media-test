@@ -118,8 +118,12 @@ internal fun ReplyMediaList(media: List<ReplyMedia>) {
         // Keyed, so a picture's loaded bytes never show under another one when the list changes.
         media.forEach { item ->
             key(item.source) {
+                val widget = widgetFile(item)
+                val files = LocalWidgetFiles.current
                 val file = remember(item.source) { GatewayFile(item.gatewayPath).takeIf { item.onGateway } }
                 when {
+                    // A `::preview` page is upstream's widget, drawn in Desktop's theme in its own sandbox.
+                    widget != null && files != null -> InlineWidget(item, widget, files)
                     isSvgSource(item.source) -> ReplySvg(item, file)
                     item.isImage || file?.kind == GatewayFileKind.Image -> ReplyImage(item)
                     file == null -> ReplyFile(item)
@@ -225,7 +229,7 @@ internal fun webHost(source: String): String? {
  * when tapped: a page drawn, a recording played, a document read, without saving it first.
  */
 @Composable
-internal fun ReplyFile(item: ReplyMedia) {
+internal fun ReplyFile(item: ReplyMedia, download: (suspend () -> FileDownload)? = null) {
     val load = LocalMediaLoader.current
     val actions = rememberMediaActions()
     val notify = LocalNotice.current
@@ -241,9 +245,19 @@ internal fun ReplyFile(item: ReplyMedia) {
         if (busy) return
         busy = true
         scope.launch {
-            val bytes = load(item.source)
-            if (bytes == null) notify("Couldn't get ${item.name} from the gateway.") else action(bytes)
-            busy = false
+            try {
+                if (download != null) {
+                    when (val result = download()) {
+                        is FileDownload.Ready -> action(result.bytes)
+                        is FileDownload.Failed -> notify(result.message)
+                    }
+                } else {
+                    val bytes = load(item.source)
+                    if (bytes == null) notify("Couldn't get ${item.name} from the gateway.") else action(bytes)
+                }
+            } finally {
+                busy = false
+            }
         }
     }
 
