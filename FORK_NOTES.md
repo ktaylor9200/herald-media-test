@@ -130,9 +130,8 @@ All of it is confirmed on the person's phone:
 - Inline `::preview` widgets (upstream's) and `MEDIA:` pages, audio and video still draw as before. Confirmed on the
   phone 2026-10-19, with the side chats.
 
-**To check (folding, pilot APK after 2026-10-19's side chats):** a page, a drawing and a `::preview` widget each come
-as a folded card; a tap shows it in place, Hide folds it, the corner button opens it full screen; scrolling away and
-back keeps a shown one shown; another chat starts with all folded.
+- Folding (2026-10-19): pages, drawings and `::preview` widgets come folded, show in place on a tap, Hide and full
+  screen work, a shown one stays shown while the chat is open. Confirmed on the phone 2026-10-19.
 
 ## Herald push plugin (`herald-push`)
 Checked 2026-10-18 against `Giton22/hermes-herald-push` (0.4.2; `master` = the pinned `PLUGIN_REF` 45e76c0 in content).
