@@ -1,20 +1,27 @@
-# Fork notes: in-feed artifacts and read-aloud
+# Fork notes: in-feed artifacts, read-aloud and side chats
 
-Status as of 2026-10-18. Keep this file current as work lands.
+Status as of 2026-10-19. Keep this file current as work lands.
 
 ## Goal
 The goal is proper in-feed artifact support, as in the Hermes Desktop app. Things the agent delivers (`MEDIA:` files,
 `::preview` artifacts, Markdown images) should show and play right in the chat, not as download-only cards.
 Separately, a speaker button under each reply reads it aloud with the profile's voice.
 
+Second project (2026-10-19, fork only by the person's choice, never offered upstream): the Bots tab of the sidebar
+reaches a bot's other chats ("Side chats"), and New chat starts beside the open chat.
+
 ## Branches and PRs (all inside the fork)
 | Branch | PR | What |
 |---|---|---|
 | `media-viewer` | #1 | File viewer + in-feed media, HTML pages, SVG drawings; also carries the fork-only dev-APK workflow |
 | `read-aloud` | #2 | Speaker button under replies |
-| `pilot` | #3 (draft, never merge) | `media-viewer` + `read-aloud` + two commits so they don't play over each other. **Test APKs come from here.** |
+| `side-chats` | #4 | Bots tab: Side chats, Hidden last, New chat beside the open chat, a side chat reopens on launch. Fork only |
+| `pilot` | #3 (draft, never merge) | `media-viewer` + `read-aloud` + `side-chats` + two commits so the speaker and players don't play over each other. **Test APKs come from here.** |
 
-All three were synced with upstream `master` (3cc3f60) on 2026-10-18.
+All were synced with upstream `master` (8861253, upstream's inline `::preview` widgets) on 2026-10-19. Upstream's
+`InlineWidget` takes a `::preview` HTML page (Desktop's theme, its own strict sandbox); this fork's `ReplyPage` still
+draws `MEDIA:` HTML files. `ReplyMediaList` routes a `::preview` page to the widget first, then everything else as
+before.
 
 Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` ones and merges):
 - Media: `8f57533` viewer for HTML/audio/video and opening delivered files, `4740607` seek thumb fix,
@@ -22,6 +29,8 @@ Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` 
   leaves it only on a tap, `6cf4101` no WebSockets before Load (with `ed9f0e9`, its build fix), `926a035` `.svgz` is a plain file, `db85209` the
   feed fetches through the chat's profile with the 64 MB cap.
 - Read aloud: `0272d39`; review fix `8c3daea` dictating stops a reading.
+- Side chats (fork only): `fe0919b` Hidden below the rooms, `f4942a8` New chat beside the open chat, `a3e3daa` a
+  side chat reopens on launch, `868cd03` Side chats.
 - Pilot only: `a13c92d` the speaker and the feed's player take turns, `3dabf4d` dictation pauses the feed and the
   viewer's player stops a reading. They're only needed once both features are present.
 
@@ -75,6 +84,20 @@ and Share.
   write it down).
 - Errors go through `ChatRequest.Notice`.
 
+**Side chats** (`ui/bots/SideChatsViewModel.kt`, `ui/sessions/SideChats.kt`, hooks in `BotsRoster` and
+`SessionsSidebar`):
+- A folding "Side chats · <bot>" section between the bots and the rooms: the newest 8 of the user's conversations in
+  the bot's profile, then Show more. `/api/sessions?profile=<bot>` with the Chats list's exclusions
+  (`MACHINE_SOURCES`) plus `api_server` (Runs API: the server's check probes, handoffs) and `bot_room`. Hermes leaves
+  hidden sessions out of listings, which drops the Bot Chat and room turns.
+- It follows the open chat (`sideChatsBot`): a bot's Bot Chat or any chat in its profile shows that bot; a room or a
+  chat in the launch profile keeps the last one. The open side chat's row is filled and its bot's card outlined.
+- Long press: pin, rename, archive, delete, in the bot's profile. The section's + and the sidebar's New chat (on the
+  Bots tab) start a chat with that bot. Folded (remembered, `sideChatsCollapsed`), only the open side chat shows.
+- The header's New chat and `/new` start in the open chat's profile (`AppViewModel.newChatBeside`); in a Bot Chat,
+  `/new` still compresses. A side chat is remembered where the Chats list is, with its own profile in `LastChat`.
+- herald-push watches only each bot's Bot Chat, so side-chat replies don't notify while Herald is closed.
+
 ## Device-tested
 All of it is confirmed on the person's phone:
 - Round 1: the viewer (HTML, audio and video full screen, Open).
@@ -91,6 +114,16 @@ All of it is confirmed on the person's phone:
   - The APK installed over the last Herald Dev.
 - Read aloud failed for a while after the server's Hermes v0.22.2 switch (2026-10-17): the new install lacked Hermes's
   `tts-premium` extra (ElevenLabs). That was a server problem, not the app's, and it was fixed on the server the same day.
+
+**To check on the phone (side chats, pilot APK of 2026-10-19):**
+- Hidden is the last thing in the Bots list.
+- Open Vivian's Bot Chat: "Side chats · Vivian" lists her other chats, no scheduled runs or "Run claude --version"
+  probes. Open one: the drawer closes, reopening it shows the Bots tab with that row filled and Vivian's card outlined.
+- From that side chat, the header's New chat (and `/new`) starts a chat with Vivian: Vivian's card stays outlined, and
+  after the first message it's listed under Side chats · Vivian.
+- Fold the section: only the open side chat stays. Long press a row: rename, pin, archive, delete work.
+- Close Herald in a side chat and reopen it: it comes back to that chat.
+- Inline `::preview` widgets (upstream's) and `MEDIA:` pages, audio and video still draw as before.
 
 ## Herald push plugin (`herald-push`)
 Checked 2026-10-18 against `Giton22/hermes-herald-push` (0.4.2; `master` = the pinned `PLUGIN_REF` 45e76c0 in content).
