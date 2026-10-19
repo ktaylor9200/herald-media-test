@@ -155,8 +155,8 @@ interface BotActions {
 
 /**
  * The Bots side of the sidebar: what needs the user first, as cards, then a card per bot with its face,
- * name and what it's up to, two to a row, then the rooms. Tapping a bot opens its one permanent chat;
- * a long press offers the rest.
+ * name and what it's up to, two to a row, then the rooms, and the hidden bots, folded, last. Tapping a bot
+ * opens its one permanent chat; a long press offers the rest.
  */
 @Composable
 fun BotsRoster(
@@ -278,29 +278,6 @@ fun BotsRoster(
                 }
             }
             grid(state.bots, "bots", hidden = false)
-            if (state.hidden.isNotEmpty()) {
-                item(key = "hidden-label") {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = MinTouchTarget)
-                            .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
-                            .clickable(onClickLabel = if (hiddenOpen) "Collapse hidden bots" else "Show hidden bots") { hiddenOpen = !hiddenOpen }
-                            .padding(horizontal = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        UnstyledIcon(
-                            if (hiddenOpen) Lucide.ChevronDown else Lucide.ChevronRight,
-                            contentDescription = null,
-                            tint = Theme[colors][textTertiary],
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Text("Hidden ${state.hidden.size}", style = Theme[typography][caption], color = Theme[colors][textTertiary])
-                    }
-                }
-                if (hiddenOpen) grid(state.hidden, "hidden", hidden = true)
-            }
             // Hosted rooms when the gateway runs them, and Desktop's own read-only copies beside them.
             if (roomsAvailable || desktopRooms.isNotEmpty()) {
                 item(key = "rooms-label") {
@@ -335,6 +312,31 @@ fun BotsRoster(
                         DesktopRoomRow(room, roomFaces, onClick = { onOpenDesktopRoom(room) })
                     }
                 }
+            }
+            // Hidden bots last, below the rooms: they keep working, but needn't be in the way.
+            if (state.hidden.isNotEmpty()) {
+                item(key = "hidden-label") {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp)
+                            .heightIn(min = MinTouchTarget)
+                            .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+                            .clickable(onClickLabel = if (hiddenOpen) "Collapse hidden bots" else "Show hidden bots") { hiddenOpen = !hiddenOpen }
+                            .padding(horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        UnstyledIcon(
+                            if (hiddenOpen) Lucide.ChevronDown else Lucide.ChevronRight,
+                            contentDescription = null,
+                            tint = Theme[colors][textTertiary],
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text("Hidden ${state.hidden.size}", style = Theme[typography][caption], color = Theme[colors][textTertiary])
+                    }
+                }
+                if (hiddenOpen) grid(state.hidden, "hidden", hidden = true)
             }
         }
         state.notice?.let { message ->
