@@ -12,8 +12,10 @@ Second project (2026-10-19, fork only by the person's choice, never offered upst
 reaches a bot's other chats ("Side chats"), and New chat starts beside the open chat.
 
 Third project (2026-10-20, a session of its own): the chained voice chat as fast and smooth as possible. It will likely
-take AgentStack-side plugin changes later. First the technical issues: the headset's microphone (done, `voice-headset`)
-and the end of speech in noise (next). See "Voice" below.
+take AgentStack-side Hermes changes. The headset's microphone is done (`voice-headset`); the plan the person chose
+(2026-10-20) is in three steps: (1) Herald alone: voice turns on the profile's voice model, words written down while
+they're said (`voice-stream`); (2) AgentStack: Hermes patches for the end of speech on the server and a voice note,
+and the voice model on the API key (a change brief); (3) Herald acts on the server's end of speech. See "Voice" below.
 
 ## Branches and PRs (all inside the fork)
 | Branch | PR | What |
@@ -23,7 +25,8 @@ and the end of speech in noise (next). See "Voice" below.
 | `side-chats` | #4 | Bots tab: Side chats, Hidden last, New chat beside the open chat, a side chat reopens on launch. Fork only |
 | `pet-room` | #5 | The last reply's actions leave room for the pet, so Read aloud isn't under it. An upstream bug too; fork only unless the person says |
 | `voice-headset` | #6 | Voice chat on a Bluetooth headset (a car's hands-free too) listens on its microphone and speaks in it, as a call. Fork only for now |
-| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + `voice-headset` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
+| `voice-stream` | #7 | Voice chat step 1: spoken turns marked `voice_turn` (the profile's voice model), and the microphone streamed to `/api/audio/transcribe-stream` while you talk. Fork only for now |
+| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + `voice-headset` + `voice-stream` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
 
 All were synced with upstream's **v0.12.0 tag** (c781aca) on 2026-10-20: the release, not `master`, which since has
 Suggested replies through a community server plugin (Next Prompt) the person hasn't decided on. Sync to a release tag
@@ -44,7 +47,9 @@ Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` 
 - Side chats (fork only): `fe0919b` Hidden below the rooms, `f4942a8` New chat beside the open chat, `a3e3daa` a
   side chat reopens on launch, `868cd03` Side chats.
 - Pet room: `5a11c04` the last reply's actions leave room for the pet (`petSize`, `petRoom`, `LocalPetRoom` in `ChatScreen`).
-- Voice: `6efc255` the voice chat on the Bluetooth headset (`CallAudio`, `AndroidCallAudio`).
+- Voice: `6efc255` the voice chat on the Bluetooth headset (`CallAudio`, `AndroidCallAudio`), with `0f74a4f` (its
+  test build fix); `1b5d5f4` spoken turns run on the voice chat model (`voice_turn`); `8d8daaa` words written down
+  while they're said (`LiveTranscription`, `HeardAudio`, `VoiceRecorder.recordLive`), with `d0b12d6` (a test fix).
 - Pilot only: `7a7d6cd` the feed's player and upstream's Read aloud take turns (replaces `a13c92d` and `3dabf4d`).
 
 ## What's built
@@ -127,10 +132,34 @@ nothing changes. GPT-Live calls already routed themselves (`AndroidLiveCall`). E
 car shows it as a call and the voice is call quality. Dictation and Read aloud stay on the phone (the person's choice,
 for now).
 
-**End of speech in noise (next):** without a headset, `EndOfSpeech` still decides by level alone, so road or wind noise
-that rises and falls can keep the pause from coming. Options put to the person: the phone's call-grade noise
-suppression on the microphone (`VOICE_COMMUNICATION`), no new library; an on-device speech detector (Silero) that also
-allows a shorter pause; streaming transcription with the gateway's end-pointing (plugin work, the later phase).
+**End of speech in noise:** without a headset, `EndOfSpeech` still decides by level alone, so road or wind noise
+that rises and falls can keep the pause from coming. Of the options put to the person (the phone's call-grade noise
+suppression, an on-device detector such as Silero, the gateway deciding), the person chose the gateway, as it helps
+speed too.
+
+**What Hermes v0.22.2 already has** (source read 2026-10-20):
+- `prompt.submit` `voice_turn: true` runs the turn on `auxiliary.voice_chat` (per profile; default the chat's model
+  without reasoning). Desktop sends it; Herald didn't until `voice-stream`.
+- `/api/audio/transcribe-stream`: `{"sample_rate"}`, PCM, `{"eos"}` in; `partial` (all the words so far), `final`,
+  `error` (also at once when the profile has no live speech-to-text) out. The end is the client's: the OpenAI
+  session runs with `turn_detection: None`.
+- `/api/audio/speak-stream`: the reply voiced while it's written (Herald since v0.12, #161).
+- Voice notes on the model's input exist only for GPT-Live (`surface: voice-live`), worded for a paraphrasing voice
+  model; chained turns get none. Per-turn notes ride the user message (`api_content`), so the prompt cache survives.
+
+**Step 1** (`voice-stream`): spoken turns and cut-ins carry `voice_turn`. Each listen opens the live socket at the
+first word heard, with the second before it (`HeardAudio`), and streams the rest; the words so far are the caption.
+A listen nobody speaks in opens nothing; no live speech-to-text, an error or a dropped socket sends the recording up
+whole as before. The phone still decides the end. Dictation and what's said over a reply are unchanged.
+
+**Step 2** (a change brief for AgentStack, 2026-10-20): Hermes patch 0004 `voice.turn_note` (a per-profile note on
+voice turns), patch 0005 `stt.streaming_end_of_speech` (the socket sends `{"type":"endpoint"}` when the provider
+says the speaker stopped, then `final` without `eos`), and `auxiliary.voice_chat` = Opus 5.5 on `anthropic-bots`
+(the API key), minimum reasoning: the person's choice, as the API key is faster to the first word. The person asked
+for a note with "a little more room" than GPT-Live's brevity.
+
+**Step 3:** on `endpoint`, Herald stops recording and awaits `final`; the phone's detector, Send now and the cap stay
+as backups. Herald already ignores frame types it doesn't know, so either side can go first.
 
 ## Device-tested
 All of it is confirmed on the person's phone:
@@ -213,6 +242,11 @@ until the push brief after the pilot review. Its ntfy calls carry no auth, so it
 - Disconnect the earbuds mid-chat: it goes on with the phone's speaker and microphone. Connect them mid-chat: it moves
   to them.
 - Without a headset, the voice chat is as before. Read aloud and dictation are as before.
+
+**To check on the phone (voice step 1, pilot APK of 2026-10-20):**
+- In a voice chat, your words appear as you speak; after you stop, Transcribing is brief (no upload wait).
+- A reply comes faster than before on Evelyn (high reasoning before, none now), and Oliver and Vivian (medium before).
+- Stay silent through a listen: it listens again as before.
 
 ## Next likely steps
 1. Get device feedback on the pilot APK and fix what comes up on the branch that owns it, then merge into `pilot`.
