@@ -359,13 +359,6 @@ fun ChatScreen(
     // What the feed plays, kept here so the viewer opening over it can stop it.
     val feedPlayer = rememberFeedPlayer()
     LaunchedEffect(previewing) { if (previewing != null) feedPlayer.pause() }
-    // One voice at a time: a reply read aloud or a voice chat pauses what the feed plays, and the feed playing
-    // stops the reading. Each acts only as it starts, so neither undoes the other.
-    val readingAloud = viewModel.voice.reading.collectAsStateWithLifecycle().value?.key
-    val voiceChatOn = viewModel.voice.chat.collectAsStateWithLifecycle().value.phase != VoicePhase.Off
-    val feedPlaying = feedPlayer.playback?.playing == true
-    LaunchedEffect(readingAloud, voiceChatOn) { if (readingAloud != null || voiceChatOn) feedPlayer.pause() }
-    LaunchedEffect(feedPlaying) { if (feedPlaying) viewModel.voice.stopReading() }
     var notice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
         if (notice != null) {
