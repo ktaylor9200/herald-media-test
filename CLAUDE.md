@@ -1,4 +1,4 @@
-# Herald (fork: ktaylor9200/herald-media-test)
+# Herald (fork: ktaylor9200/herald-stackver)
 
 Herald is a native Android client (Kotlin Multiplatform + Compose) for a self-hosted Hermes Agent gateway.
 This repo is a **fork of `Giton22/herald`** used to pilot features before offering them upstream.
@@ -29,7 +29,7 @@ from a fork branch that carries these files. Upstream asks for an issue first fo
 - Lint treats warnings as errors and has a baseline (`androidApp/lint-baseline.xml`). Fix new issues, don't baseline them.
 - **No local build?** (A cloud sandbox may block Google Maven and Gradle.) Push the branch and read the results:
   `ci.yml` runs on every PR in the fork, and `dev-apk.yml` builds on every push to a non-master branch that contains it.
-  Read results with `gh api repos/ktaylor9200/herald-media-test/commits/<sha>/check-runs`.
+  Read results with `gh api repos/ktaylor9200/herald-stackver/commits/<sha>/check-runs`.
   Annotations on a failed run are at `.../check-runs/<id>/annotations`.
 - Device testing: the person installs the `herald-dev-<branch>` artifact from the `Dev APK` run. It installs beside the
   real app as "Herald Dev", and each build installs over the last because the debug key is cached.
