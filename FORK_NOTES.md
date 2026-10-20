@@ -1,11 +1,12 @@
-# Fork notes: in-feed artifacts, read-aloud and side chats
+# Fork notes: in-feed artifacts and side chats
 
-Status as of 2026-10-19. Keep this file current as work lands.
+Status as of 2026-10-20. Keep this file current as work lands.
 
 ## Goal
 The goal is proper in-feed artifact support, as in the Hermes Desktop app. Things the agent delivers (`MEDIA:` files,
 `::preview` artifacts, Markdown images) should show and play right in the chat, not as download-only cards.
-Separately, a speaker button under each reply reads it aloud with the profile's voice.
+Separately, a speaker button under each reply read it aloud with the profile's voice; upstream shipped its own in
+v0.12.0 (#230), which replaced the fork's on 2026-10-20.
 
 Second project (2026-10-19, fork only by the person's choice, never offered upstream): the Bots tab of the sidebar
 reaches a bot's other chats ("Side chats"), and New chat starts beside the open chat.
@@ -14,11 +15,16 @@ reaches a bot's other chats ("Side chats"), and New chat starts beside the open 
 | Branch | PR | What |
 |---|---|---|
 | `media-viewer` | #1 | File viewer + in-feed media, HTML pages, SVG drawings; also carries the fork-only dev-APK workflow |
-| `read-aloud` | #2 | Speaker button under replies |
+| `read-aloud` | #2 (closed) | Retired 2026-10-20: upstream's Read aloud (v0.12.0, #230) does all it did and more. Kept for history; not merged into `pilot` any more |
 | `side-chats` | #4 | Bots tab: Side chats, Hidden last, New chat beside the open chat, a side chat reopens on launch. Fork only |
-| `pilot` | #3 (draft, never merge) | `media-viewer` + `read-aloud` + `side-chats` + two commits so the speaker and players don't play over each other. **Test APKs come from here.** |
+| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
 
-All were synced with upstream `master` (8861253, upstream's inline `::preview` widgets) on 2026-10-19. Upstream's
+All were synced with upstream's **v0.12.0 tag** (c781aca) on 2026-10-20: the release, not `master`, which since has
+Suggested replies through a community server plugin (Next Prompt) the person hasn't decided on. Sync to a release tag
+until then (`git merge v0.X.0` on `master`). For the switch to upstream's Read aloud, `pilot` reverted the fork's four
+read-aloud commits (`0272d39`, `8c3daea` and the two pilot-only ones) and re-added the turn-taking as `7a7d6cd`.
+
+Since 2026-10-19 (upstream `master` 8861253, its inline `::preview` widgets): upstream's
 `InlineWidget` takes a `::preview` HTML page (Desktop's theme, its own strict sandbox); this fork's `ReplyPage` still
 draws `MEDIA:` HTML files. `ReplyMediaList` routes a `::preview` page to the widget first, then everything else as
 before.
@@ -28,11 +34,10 @@ Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` 
   `4f8448e` in-feed audio/video/pages, `25b304c` SVG; review fixes `5271cdd` a page reads only its own folder and
   leaves it only on a tap, `6cf4101` no WebSockets before Load (with `ed9f0e9`, its build fix), `926a035` `.svgz` is a plain file, `db85209` the
   feed fetches through the chat's profile with the 64 MB cap; `4a5b061` pages, drawings and widgets come folded.
-- Read aloud: `0272d39`; review fix `8c3daea` dictating stops a reading.
+- Read aloud (retired, superseded by upstream #230): `0272d39`, `8c3daea`.
 - Side chats (fork only): `fe0919b` Hidden below the rooms, `f4942a8` New chat beside the open chat, `a3e3daa` a
   side chat reopens on launch, `868cd03` Side chats.
-- Pilot only: `a13c92d` the speaker and the feed's player take turns, `3dabf4d` dictation pauses the feed and the
-  viewer's player stops a reading. They're only needed once both features are present.
+- Pilot only: `7a7d6cd` the feed's player and upstream's Read aloud take turns (replaces `a13c92d` and `3dabf4d`).
 
 ## What's built
 **File kinds** (`core/media/GatewayFile.kt`). New kinds are `Html`, `Svg`, `Audio` and `Video`. `fetchedWhole` covers
@@ -80,13 +85,9 @@ and Share.
   with what it read in the address.
 - JavaScript is on. There are no cookies, no file or content access and no JS bridge.
 
-**Read aloud** (`VoiceController.readAloud` / `stopReading`, `ReadAloud` state):
-- It uses the same pipeline as the chained voice chat: `speakableText` → `speechChunks` → `/api/audio/speak?profile=`
-  per chunk, with the next chunk voiced while one plays.
-- The button (`ReadAloudButton` in `ChatScreen.kt`) is a speaker; a spinner while preparing; then an accented Stop.
-  Another reply takes over. A voice chat or dictation stops it, and it won't start during either (the microphone would
-  write it down).
-- Errors go through `ChatRequest.Notice`.
+**Read aloud** is upstream's since v0.12.0 (`VoiceController.readAloud`, `ReadAloudState`): it keeps each piece's
+take for a day, plays on through a rotation, stops when Herald goes out of sight, and doesn't start during a voice chat or
+dictation. The pilot adds only the turn-taking with the feed's player (`ChatScreen`).
 
 **Side chats** (`ui/bots/SideChatsViewModel.kt`, `ui/sessions/SideChats.kt`, hooks in `BotsRoster` and
 `SessionsSidebar`):
@@ -134,6 +135,11 @@ All of it is confirmed on the person's phone:
   screen work, a shown one stays shown while the chat is open. Confirmed on the phone 2026-10-19.
 
 ## Herald push plugin (`herald-push`)
+**From v0.12.0 Herald pins plugin 0.5.1** (`c88f027`: `phone_call_me` and quiet hours, in the `herald_phone` toolset);
+the person's server runs the reviewed 0.4.2 (`45e76c0`, ASSUMPTIONS 191). Herald Dev from this sync offers to update the
+gateway's plugin: **decline** until AgentStack has reviewed and pinned 0.5.1 (the person is having that done). An
+update installed from the app is switched off by the capture, and pushes stop until it's reviewed.
+
 Checked 2026-10-18 against `Giton22/hermes-herald-push` (0.4.2; `master` = the pinned `PLUGIN_REF` 45e76c0 in content).
 The fork changes nothing the plugin talks to (`core/push`, `core/phone`, `core/inbox`, notifications): only file kinds,
 chat UI and voice. So it behaves as with upstream Herald, and Herald Dev registers as a phone of its own (its own app id,
@@ -153,8 +159,6 @@ until the push brief after the pilot review. Its ntfy calls carry no auth, so it
 - **Performance**: each visible inline page or drawing is a live WebView, rebuilt when scrolled back. This hasn't been
   checked in a long chat.
 - Inline height is fixed for pages with `100vh` layouts.
-- Read aloud uses `/api/audio/speak` only. There's no streaming, so it waits for the first ~160-character chunk. It
-  doesn't use GPT-Live's voice, and it keeps playing in the background with no foreground service.
 - ROADMAP item "Run `::preview` widgets inline (a WebView with Desktop's theme prelude)" is largely done, but Desktop's
   theme prelude isn't injected yet.
 - `dev-apk.yml` pins `actions/cache` to v6.1.0 and the runner to `ubuntu-24.04`. Each branch has its own cached debug
@@ -162,6 +166,15 @@ until the push brief after the pilot review. Its ntfy calls carry no auth, so it
 
 ## Deferred by the person
 - Inline rendering of Markdown, CSV and PDF `::preview` artifacts: **hold for now**.
+
+**To check on the phone (sync to v0.12.0, pilot APK of 2026-10-20):**
+- Read aloud (upstream's) under a finished reply: plays, Stop works, a reply read again replays at once; dictating or a
+  voice chat stops it. Play a recording in the feed, then tap Read aloud: the recording pauses; play it again: the
+  reading stops. Open a film full screen: a reading stops.
+- The media circuit, folded items, side chats and New chat as before; a linked file in a room opens in the viewer
+  (pages, audio, video too).
+- New in v0.12.0: talk over a spoken reply in voice chat to cut in; calls (only once AgentStack has updated the plugin).
+- Herald Dev offers a gateway plugin update: decline it for now.
 
 ## Next likely steps
 1. Get device feedback on the pilot APK and fix what comes up on the branch that owns it, then merge into `pilot`.
