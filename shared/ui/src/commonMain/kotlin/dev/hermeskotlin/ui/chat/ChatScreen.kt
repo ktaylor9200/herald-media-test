@@ -359,18 +359,13 @@ fun ChatScreen(
     // What the feed plays, kept here so the viewer opening over it can stop it.
     val feedPlayer = rememberFeedPlayer()
     LaunchedEffect(previewing) { if (previewing != null) feedPlayer.pause() }
-    // One voice at a time: a reply read aloud, a voice chat or dictation (whose microphone would hear it) pauses
-    // what the feed plays, and the feed playing, or a recording or film opened full screen, stops the reading.
-    // Each acts only as it starts, so neither undoes the other.
+    // One voice at a time: a reply read aloud or a voice chat pauses what the feed plays, and the feed playing
+    // stops the reading. Each acts only as it starts, so neither undoes the other.
     val readingAloud = viewModel.voice.reading.collectAsStateWithLifecycle().value?.key
     val voiceChatOn = viewModel.voice.chat.collectAsStateWithLifecycle().value.phase != VoicePhase.Off
-    val dictating = viewModel.voice.dictation.collectAsStateWithLifecycle().value.recording
     val feedPlaying = feedPlayer.playback?.playing == true
-    LaunchedEffect(readingAloud, voiceChatOn, dictating) { if (readingAloud != null || voiceChatOn || dictating) feedPlayer.pause() }
+    LaunchedEffect(readingAloud, voiceChatOn) { if (readingAloud != null || voiceChatOn) feedPlayer.pause() }
     LaunchedEffect(feedPlaying) { if (feedPlaying) viewModel.voice.stopReading() }
-    LaunchedEffect(previewing) {
-        if (previewing?.kind == GatewayFileKind.Audio || previewing?.kind == GatewayFileKind.Video) viewModel.voice.stopReading()
-    }
     var notice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
         if (notice != null) {
