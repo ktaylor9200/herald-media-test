@@ -12,12 +12,9 @@ import dev.hermeskotlin.core.slash.SlashSuggestion
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import dev.hermeskotlin.ui.voice.ReadAloud
 import kotlinx.serialization.json.JsonObject
 
 private val DefaultRunningSend: StateFlow<RunningSend> = MutableStateFlow(RunningSend.Steer).asStateFlow()
-
-private val NotReading: StateFlow<ReadAloud?> = MutableStateFlow<ReadAloud?>(null).asStateFlow()
 
 /**
  * What the chat's layout ([ChatView]) asks of whatever runs the chat: [ChatViewModel] in the app,
@@ -117,12 +114,6 @@ interface ChatActions {
     fun dismissAttachmentError()
 
     fun skipSpeech()
-
-    /** The reply being read aloud from its speaker button, if one is. */
-    val readingAloud: StateFlow<ReadAloud?> get() = NotReading
-
-    /** Reads reply [key] aloud with the profile's voice, or stops it when it's the one reading. */
-    fun readAloud(key: String, text: String) {}
 
     /** Sends what the voice chat has heard so far, without waiting for a pause. */
     fun sendVoiceNow() {}

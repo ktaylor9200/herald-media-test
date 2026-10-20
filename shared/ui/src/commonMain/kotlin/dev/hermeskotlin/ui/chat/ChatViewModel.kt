@@ -57,7 +57,6 @@ import dev.hermeskotlin.core.voice.SpeechPlayer
 import dev.hermeskotlin.core.voice.SpeechStreams
 import dev.hermeskotlin.core.voice.VoiceRecorder
 import dev.hermeskotlin.core.voice.DeviceDictation
-import dev.hermeskotlin.ui.voice.ReadAloud
 import dev.hermeskotlin.ui.voice.VoiceController
 import kotlinx.coroutines.CoroutineScope
 import dev.hermeskotlin.core.slash.SlashApi
@@ -123,9 +122,6 @@ sealed interface ChatRequest {
 
     /** `/voice`: the screen asks for the microphone, then starts a voice chat. */
     data object StartVoice : ChatRequest
-
-    /** A short message for the screen to show over the chat. */
-    data class Notice(val text: String) : ChatRequest
 
     /** The voice shortcut: the screen asks for the microphone, then dictates into the composer. */
     data object StartDictation : ChatRequest
@@ -1235,15 +1231,6 @@ class ChatViewModel(
     }
 
     override fun skipSpeech() = voice.skipSpeech()
-
-    override val readingAloud: StateFlow<ReadAloud?> get() = voice.reading
-
-    override fun readAloud(key: String, text: String) {
-        val target = target ?: return
-        voice.readAloud(key, text, target.gateway.gatewayUrl, target.profile) { message ->
-            _requests.trySend(ChatRequest.Notice(message))
-        }
-    }
 
     override fun sendVoiceNow() = voice.sendNow()
 
