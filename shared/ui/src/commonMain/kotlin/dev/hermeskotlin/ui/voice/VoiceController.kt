@@ -377,7 +377,11 @@ class VoiceController(
             val opening = async { openSpeech(gateway, profile) }
             val sent = try {
                 // What was said over a reply replaces it: a turn still running stops first.
-                if (cutIn != null) session.stopAndSubmit(transcript).outcome == SendOutcome.Sent else session.send(transcript)
+                if (cutIn != null) {
+                    session.stopAndSubmit(transcript, voiceTurn = true).outcome == SendOutcome.Sent
+                } else {
+                    session.submit(transcript, voiceTurn = true) == SendOutcome.Sent
+                }
             } catch (e: Throwable) {
                 closeUnused(opening)
                 throw e
