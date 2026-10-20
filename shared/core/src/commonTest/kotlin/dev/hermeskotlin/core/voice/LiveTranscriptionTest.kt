@@ -53,7 +53,8 @@ class LiveTranscriptionTest {
     fun aGatewayThatCantWriteItDownSaysSoAtOnce() = runTest {
         val incoming = Channel<Frame>(Channel.UNLIMITED)
         val outgoing = Channel<Frame>(Channel.UNLIMITED)
-        val stream = KtorLiveTranscription(incoming, outgoing, backgroundScope, {}) {}
+        // Read in the test's own scope, which advanceUntilIdle runs; it ends with the error.
+        val stream = KtorLiveTranscription(incoming, outgoing, this, {}) {}
         incoming.send(Frame.Text("""{"type":"error","message":"no live STT for the configured provider"}"""))
         incoming.close()
 
