@@ -34,8 +34,10 @@ import kotlin.math.sqrt
 /**
  * Records 16 kHz mono PCM with [AudioRecord] and hands it over as WAV, which every speech-to-text
  * provider takes. The level is Desktop's: RMS of the waveform, scaled so 1.0 is loud speech.
+ *
+ * In a voice chat on a Bluetooth headset ([call]), it records from the call's microphone, which is the headset's.
  */
-class AndroidVoiceRecorder : VoiceRecorder {
+class AndroidVoiceRecorder(private val call: AndroidCallAudio? = null) : VoiceRecorder {
 
     @Volatile private var finishRequested = false
 
@@ -44,7 +46,7 @@ class AndroidVoiceRecorder : VoiceRecorder {
         finishRequested = false
         val minBuffer = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            if (call?.onHeadset == true) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.VOICE_RECOGNITION,
             SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
@@ -220,9 +222,10 @@ class AndroidVoiceRecorder : VoiceRecorder {
 
 /**
  * Plays each reply clip from a cache file with [MediaPlayer], and streamed speech straight into an
- * [AudioTrack] as it arrives, both as an assistant voice.
+ * [AudioTrack] as it arrives, both as an assistant voice; in a voice chat on a Bluetooth headset ([call]), as the
+ * call's voice, which is what the headset plays.
  */
-class AndroidSpeechPlayer(private val context: Context) : SpeechPlayer {
+class AndroidSpeechPlayer(private val context: Context, private val call: AndroidCallAudio? = null) : SpeechPlayer {
     private val lock = Any()
     /** Held ([hold]): what plays now is paused, and what's ready meanwhile waits to start. */
     private var holding = false
@@ -248,12 +251,7 @@ class AndroidSpeechPlayer(private val context: Context) : SpeechPlayer {
         // A frame is a 16-bit sample for each channel.
         val frameBytes = 2 * channels
         val track = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
+            .setAudioAttributes(voice())
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -352,12 +350,7 @@ class AndroidSpeechPlayer(private val context: Context) : SpeechPlayer {
         val player = MediaPlayer()
         try {
             suspendCancellableCoroutine { continuation ->
-                player.setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build(),
-                )
+                player.setAudioAttributes(voice())
                 player.setOnCompletionListener {
                     // Done: letting go of a hold mustn't start it over.
                     synchronized(lock) { if (clip === player) clip = null }
@@ -383,6 +376,11 @@ class AndroidSpeechPlayer(private val context: Context) : SpeechPlayer {
             file.delete()
         }
     }
+
+    private fun voice(): AudioAttributes = AudioAttributes.Builder()
+        .setUsage(if (call?.onHeadset == true) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
 
     private companion object {
         const val POLL_MS = 50L

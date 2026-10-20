@@ -21,6 +21,7 @@ import dev.hermeskotlin.core.voice.DeviceDictationUnavailable
 import dev.hermeskotlin.core.voice.LiveCalls
 import dev.hermeskotlin.core.voice.ReadAloudVoices
 import dev.hermeskotlin.core.voice.InMemoryReadAloudVoices
+import dev.hermeskotlin.core.voice.CallAudio
 import dev.hermeskotlin.core.voice.VoiceKeepAlive
 import dev.hermeskotlin.core.voice.Recording
 import dev.hermeskotlin.core.voice.SpeechPlayer
@@ -139,6 +140,8 @@ class VoiceController(
     /** An approval is only taken by voice while the phone is unlocked. */
     private val deviceLock: DeviceLock = DeviceLock.None,
     private val liveCalls: LiveCalls? = null,
+    /** Puts a chained chat's sound on a Bluetooth headset, as a call's is. */
+    private val callAudio: CallAudio = CallAudio.None,
 ) {
     private val _chat = MutableStateFlow(VoiceChatState())
     val chat: StateFlow<VoiceChatState> = _chat.asStateFlow()
@@ -240,6 +243,9 @@ class VoiceController(
         var failures = 0
         var cutIn: String? = null
         try {
+            // On a Bluetooth headset (a car's hands-free too) the chat is a call there: its microphone listens, and the
+            // voice plays in it.
+            callAudio.open()
             if (opener != null) {
                 val said = opener.spokenOpener()
                 _chat.update { it.copy(phase = VoicePhase.Speaking, caption = said, captionIsVoice = true) }
@@ -265,6 +271,7 @@ class VoiceController(
                 }
             }
         } finally {
+            callAudio.close()
             bargeIn = null
             appScope.launch { audio.ttsLease(gateway, active = false, profile) }
         }

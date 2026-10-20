@@ -10,6 +10,7 @@ import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.storage.InMemoryKeyValueStore
 import dev.hermeskotlin.core.settings.DictationEngine
 import dev.hermeskotlin.core.voice.AudioApi
+import dev.hermeskotlin.core.voice.CallAudio
 import dev.hermeskotlin.core.voice.DeviceDictation
 import dev.hermeskotlin.core.voice.DeviceDictationUnavailable
 import dev.hermeskotlin.core.voice.Recording
@@ -398,6 +399,58 @@ class VoiceControllerTest {
         assertEquals(5, recorder.recordings)
         // An ending forced by errors says why.
         assertTrue(ended.error != null)
+    }
+
+    /** Says when the chat's sound went to the headset and came back, between the listens of [Listening]. */
+    private class FakeCallAudio : CallAudio {
+        val steps = mutableListOf<String>()
+        override suspend fun open() {
+            steps += "open"
+        }
+
+        override fun close() {
+            steps += "close"
+        }
+    }
+
+    /** Hears "stop" once, and puts that in [steps]. */
+    private class Listening(private val steps: MutableList<String>) : VoiceRecorder {
+        override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording {
+            steps += "listen"
+            onSpeech()
+            return Recording(byteArrayOf(1, 2, 3), "audio/wav", heardSpeech = true)
+        }
+
+        override fun finish() = Unit
+    }
+
+    /** On a Bluetooth headset, the chat listens on its microphone from the first word, and gives it back at the end. */
+    @Test
+    fun aVoiceChatIsOnTheHeadsetFromItsFirstListenUntilItEnds() = runTest {
+        val call = FakeCallAudio()
+        val voice = VoiceController(
+            audio("Stop.", Requests()), Listening(call.steps), FakePlayer(), backgroundScope, backgroundScope, callAudio = call,
+        )
+
+        voice.startChat(offlineSession(), gateway, null)
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(listOf("open", "listen", "close"), call.steps)
+    }
+
+    @Test
+    fun endingAVoiceChatGivesTheHeadsetBack() = runTest {
+        val call = FakeCallAudio()
+        val recorder = ScriptedRecorder()
+        val voice = VoiceController(audio("unused", Requests()), recorder, FakePlayer(), backgroundScope, backgroundScope, callAudio = call)
+
+        voice.startChat(offlineSession(), gateway, null)
+        recorder.waiting.await()
+        assertEquals(listOf("open"), call.steps)
+        voice.stopChat()
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(listOf("open", "close"), call.steps)
     }
 
     /** Plays each clip until told to finish it, or for good when [holds]; says which clips started and which were cut. */

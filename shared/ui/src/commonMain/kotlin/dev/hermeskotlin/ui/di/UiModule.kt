@@ -2,6 +2,7 @@ package dev.hermeskotlin.ui.di
 
 import dev.hermeskotlin.core.di.coreModule
 import dev.hermeskotlin.core.di.platformModule
+import dev.hermeskotlin.core.voice.CallAudio
 import dev.hermeskotlin.core.voice.DeviceLock
 import dev.hermeskotlin.ui.AppViewModel
 import dev.hermeskotlin.ui.bots.BotsViewModel
@@ -51,6 +52,8 @@ val uiModule = module {
             readAloudVoices = getOrNull(),
             // Only Android says whether the phone is locked.
             deviceLock = getOrNull() ?: DeviceLock.None,
+            // Only Android routes a voice chat to a headset.
+            callAudio = getOrNull() ?: CallAudio.None,
         )
     }
     viewModelOf(::SettingsViewModel)
