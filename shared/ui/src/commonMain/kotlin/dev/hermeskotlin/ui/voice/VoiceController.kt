@@ -139,9 +139,10 @@ class VoiceController(
     private val speechStreams: SpeechStreams? = null,
     /** An approval is only taken by voice while the phone is unlocked. */
     private val deviceLock: DeviceLock = DeviceLock.None,
-    private val liveCalls: LiveCalls? = null,
     /** Puts a chained chat's sound on a Bluetooth headset, as a call's is. */
     private val callAudio: CallAudio = CallAudio.None,
+    /** Last, so a test can hand its calls over as a trailing lambda. */
+    private val liveCalls: LiveCalls? = null,
 ) {
     private val _chat = MutableStateFlow(VoiceChatState())
     val chat: StateFlow<VoiceChatState> = _chat.asStateFlow()
