@@ -39,8 +39,16 @@ class AndroidVoiceRecorder : VoiceRecorder {
 
     @Volatile private var finishRequested = false
 
+    override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording =
+        recordLive(activity, onLevel, onSpeech) {}
+
     @SuppressLint("MissingPermission") // The UI asks for RECORD_AUDIO before starting.
-    override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording = withContext(Dispatchers.IO) {
+    override suspend fun recordLive(
+        activity: VoiceActivity,
+        onLevel: (Float) -> Unit,
+        onSpeech: () -> Unit,
+        onAudio: (ByteArray) -> Unit,
+    ): Recording = withContext(Dispatchers.IO) {
         finishRequested = false
         val minBuffer = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record = AudioRecord(
@@ -77,6 +85,7 @@ class AndroidVoiceRecorder : VoiceRecorder {
                     sum += frame[i].toDouble() * frame[i]
                 }
                 pcm.write(bytes.array(), 0, read * 2)
+                onAudio(bytes.array().copyOf(read * 2))
                 elapsed += read * 1000L / SAMPLE_RATE
                 // Desktop measures 8-bit samples (±128) against 42; 16-bit samples are 256 times larger.
                 val level = min(1.0, sqrt(sum / read) / 256.0 / 42.0).toFloat()
@@ -210,7 +219,7 @@ class AndroidVoiceRecorder : VoiceRecorder {
     }
 
     private companion object {
-        const val SAMPLE_RATE = 16_000
+        const val SAMPLE_RATE = LIVE_SAMPLE_RATE
 
         /** 20 ms frames: fine-grained enough for the silence timer. */
         const val FRAME_SAMPLES = SAMPLE_RATE / 50

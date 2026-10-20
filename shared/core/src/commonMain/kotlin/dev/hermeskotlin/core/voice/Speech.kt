@@ -93,6 +93,9 @@ class EndOfSpeech(private val activity: VoiceActivity) {
     }
 }
 
+/** The rate of what [VoiceRecorder.recordLive] hands over as it hears it. */
+const val LIVE_SAMPLE_RATE = 16_000
+
 /** One finished recording. [heardSpeech] is false when it never rose above the speech level. */
 class Recording(val bytes: ByteArray, val mimeType: String, val heardSpeech: Boolean)
 
@@ -104,6 +107,14 @@ interface VoiceRecorder {
      * once, when speech is first heard.
      */
     suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit = {}, onSpeech: () -> Unit = {}): Recording
+
+    /**
+     * [record], also handing [onAudio] what it hears as it hears it ([LIVE_SAMPLE_RATE] mono 16-bit little-endian
+     * PCM, on the recorder's own thread, as are [onSpeech] and [onLevel]), so the words can be written down while
+     * they're still being said. A recorder that can't hands over nothing, and its recording is only had whole.
+     */
+    suspend fun recordLive(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit, onAudio: (ByteArray) -> Unit): Recording =
+        record(activity, onLevel, onSpeech)
 
     /** Ends the recording in progress now and keeps what was said. */
     fun finish()
