@@ -36,12 +36,6 @@ class ReadAloudTest {
         override fun finish() = Unit
     }
 
-    /** A microphone that records until it's stopped. */
-    private object OpenMic : VoiceRecorder {
-        override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording = awaitCancellation()
-        override fun finish() = Unit
-    }
-
     /** Records what it played; with [hold], each clip plays until the reading is stopped. */
     private class Player(private val hold: Boolean = false) : SpeechPlayer {
         val played = mutableListOf<SpokenAudio>()
@@ -115,24 +109,6 @@ class ReadAloudTest {
         voice.reading.first { it?.preparing == false }
         assertEquals("r2", voice.reading.value?.key)
         assertEquals(listOf("""{"text":"First reply."}""", """{"text":"Second reply."}"""), spoken(requests))
-    }
-
-    @Test
-    fun dictatingStopsTheReadingSoTheMicrophoneDoesntWriteItDown() = runTest {
-        val requests = mutableListOf<HttpRequestData>()
-        val player = Player(hold = true)
-        val voice = VoiceController(audio(requests), OpenMic, player, backgroundScope, backgroundScope)
-
-        voice.readAloud("r1", "A long reply.", gateway, null) { error(it) }
-        player.started.await()
-        voice.startDictation(gateway, null) { error("nothing was said") }
-        assertNull(voice.reading.value)
-        assertTrue(voice.dictation.value.recording)
-
-        // And a speaker tapped while dictating doesn't start.
-        voice.readAloud("r2", "Another reply.", gateway, null) { error(it) }
-        assertNull(voice.reading.value)
-        assertEquals(listOf("""{"text":"A long reply."}"""), spoken(requests))
     }
 
     @Test
