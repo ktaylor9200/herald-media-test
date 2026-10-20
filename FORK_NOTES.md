@@ -1,4 +1,4 @@
-# Fork notes: in-feed artifacts and side chats
+# Fork notes: in-feed artifacts, side chats and voice
 
 Status as of 2026-10-20. Keep this file current as work lands.
 
@@ -11,6 +11,10 @@ v0.12.0 (#230), which replaced the fork's on 2026-10-20.
 Second project (2026-10-19, fork only by the person's choice, never offered upstream): the Bots tab of the sidebar
 reaches a bot's other chats ("Side chats"), and New chat starts beside the open chat.
 
+Third project (2026-10-20, a session of its own): the chained voice chat as fast and smooth as possible. It will likely
+take AgentStack-side plugin changes later. First the technical issues: the headset's microphone (done, `voice-headset`)
+and the end of speech in noise (next). See "Voice" below.
+
 ## Branches and PRs (all inside the fork)
 | Branch | PR | What |
 |---|---|---|
@@ -18,7 +22,8 @@ reaches a bot's other chats ("Side chats"), and New chat starts beside the open 
 | `read-aloud` | #2 (closed) | Retired 2026-10-20: upstream's Read aloud (v0.12.0, #230) does all it did and more. Kept for history; not merged into `pilot` any more |
 | `side-chats` | #4 | Bots tab: Side chats, Hidden last, New chat beside the open chat, a side chat reopens on launch. Fork only |
 | `pet-room` | #5 | The last reply's actions leave room for the pet, so Read aloud isn't under it. An upstream bug too; fork only unless the person says |
-| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
+| `voice-headset` | #6 | Voice chat on a Bluetooth headset (a car's hands-free too) listens on its microphone and speaks in it, as a call. Fork only for now |
+| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + `voice-headset` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
 
 All were synced with upstream's **v0.12.0 tag** (c781aca) on 2026-10-20: the release, not `master`, which since has
 Suggested replies through a community server plugin (Next Prompt) the person hasn't decided on. Sync to a release tag
@@ -39,6 +44,7 @@ Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` 
 - Side chats (fork only): `fe0919b` Hidden below the rooms, `f4942a8` New chat beside the open chat, `a3e3daa` a
   side chat reopens on launch, `868cd03` Side chats.
 - Pet room: `5a11c04` the last reply's actions leave room for the pet (`petSize`, `petRoom`, `LocalPetRoom` in `ChatScreen`).
+- Voice: `6efc255` the voice chat on the Bluetooth headset (`CallAudio`, `AndroidCallAudio`).
 - Pilot only: `7a7d6cd` the feed's player and upstream's Read aloud take turns (replaces `a13c92d` and `3dabf4d`).
 
 ## What's built
@@ -104,6 +110,27 @@ dictation. The pilot adds only the turn-taking with the feed's player (`ChatScre
 - The header's New chat and `/new` start in the open chat's profile (`AppViewModel.newChatBeside`); in a Bot Chat,
   `/new` still compresses. A side chat is remembered where the Chats list is, with its own profile in `LastChat`.
 - herald-push watches only each bot's Bot Chat, so side-chat replies don't notify while Herald is closed.
+
+## Voice
+**Upstream (checked 2026-10-20):** nothing open or closed on headset routing; #113 (a contributor's proposal) only
+mentions a headset button. The noise work is #185, fixed by #189 in v0.12.0: brief noise no longer starts the pause
+over, and Send now (the arrow, once it hears you) sends without waiting for it. Open #210 (Call Hermes ringback) edits
+`AndroidVoice.kt` and `VoiceController.kt` too, so expect a small conflict when it lands.
+
+**Headset** (`voice-headset`): a Bluetooth headset only lends its microphone to a call, so the chained chat used the
+phone's. `CallAudio` (common) is opened as the chained chat starts and closed as it ends (`converseChained`), for the
+chat and the "Hermes calls you" screen (`PhoneCallModel`). `AndroidCallAudio` puts the phone in call mode with the
+headset as the call's device (`setCommunicationDevice`; `startBluetoothSco` before Android 12), follows headsets that
+come or go mid-chat, and waits up to 2 s for the link before the first listen. Meanwhile `AndroidVoiceRecorder` records
+from `VOICE_COMMUNICATION` and `AndroidSpeechPlayer` plays as `USAGE_VOICE_COMMUNICATION`. Without a Bluetooth headset
+nothing changes. GPT-Live calls already routed themselves (`AndroidLiveCall`). Expected and accepted by the person: a
+car shows it as a call and the voice is call quality. Dictation and Read aloud stay on the phone (the person's choice,
+for now).
+
+**End of speech in noise (next):** without a headset, `EndOfSpeech` still decides by level alone, so road or wind noise
+that rises and falls can keep the pause from coming. Options put to the person: the phone's call-grade noise
+suppression on the microphone (`VOICE_COMMUNICATION`), no new library; an on-device speech detector (Silero) that also
+allows a shorter pause; streaming transcription with the gateway's end-pointing (plugin work, the later phase).
 
 ## Device-tested
 All of it is confirmed on the person's phone:
@@ -177,6 +204,15 @@ until the push brief after the pilot review. Its ntfy calls carry no auth, so it
   (pages, audio, video too).
 - New in v0.12.0: talk over a spoken reply in voice chat to cut in; calls (only once AgentStack has updated the plugin).
 - Herald Dev offers a gateway plugin update: decline it for now.
+
+**To check on the phone (voice on the headset, pilot APK of 2026-10-20):**
+- Bluetooth earbuds connected, start a voice chat: the voice is in the earbuds and it hears you on their microphone
+  (speak quietly with the phone in another room, or covered). End it: music plays on the earbuds again as before.
+- In the car: the head unit shows a call while the chat is on, it hears you on the car's microphone, and the voice is on
+  the car's speakers; ending the chat ends the "call".
+- Disconnect the earbuds mid-chat: it goes on with the phone's speaker and microphone. Connect them mid-chat: it moves
+  to them.
+- Without a headset, the voice chat is as before. Read aloud and dictation are as before.
 
 ## Next likely steps
 1. Get device feedback on the pilot APK and fix what comes up on the branch that owns it, then merge into `pilot`.
