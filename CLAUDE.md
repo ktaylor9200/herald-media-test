@@ -15,8 +15,9 @@ from a fork branch that carries these files. Upstream asks for an issue first fo
 
 ## Remotes and branches
 - `origin` = the fork, `upstream` = `https://github.com/Giton22/herald.git`. Add `upstream` if a fresh clone lacks it.
-- Fork `master` mirrors upstream `master` plus the two notes files. To sync: `git fetch upstream && git merge upstream/master`
-  on `master`, then merge `master` into the feature branches. Don't rebase pushed branches.
+- Fork `master` mirrors upstream plus the two notes files. To sync: `git fetch upstream --tags && git merge <tag>` on
+  `master` (a release tag, such as `v0.12.0`, for now: see FORK_NOTES.md), then merge `master` into the feature
+  branches and those into `pilot`. Don't rebase pushed branches.
 - Feature branches each have a PR inside the fork; `pilot` merges them all for testing (see FORK_NOTES.md).
 
 ## Build and test
