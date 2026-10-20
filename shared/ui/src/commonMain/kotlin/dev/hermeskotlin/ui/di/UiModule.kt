@@ -56,6 +56,7 @@ val uiModule = module {
             deviceLock = getOrNull() ?: DeviceLock.None,
             // Only Android routes a voice chat to a headset.
             callAudio = getOrNull() ?: CallAudio.None,
+            liveTranscriptions = getOrNull(),
         )
     }
     viewModelOf(::SettingsViewModel)

@@ -20,8 +20,11 @@ import dev.hermeskotlin.core.voice.DeviceDictation
 import dev.hermeskotlin.core.voice.DeviceDictationUnavailable
 import dev.hermeskotlin.core.voice.LiveCalls
 import dev.hermeskotlin.core.voice.ReadAloudVoices
+import dev.hermeskotlin.core.voice.HeardAudio
 import dev.hermeskotlin.core.voice.InMemoryReadAloudVoices
 import dev.hermeskotlin.core.voice.CallAudio
+import dev.hermeskotlin.core.voice.LIVE_SAMPLE_RATE
+import dev.hermeskotlin.core.voice.LiveTranscriptions
 import dev.hermeskotlin.core.voice.VoiceKeepAlive
 import dev.hermeskotlin.core.voice.Recording
 import dev.hermeskotlin.core.voice.SpeechPlayer
@@ -137,6 +140,8 @@ class VoiceController(
     private val readAloudVoices: ReadAloudVoices = InMemoryReadAloudVoices(),
     /** Voices a reply while it's still being written; without it, a reply is read out once it's done. */
     private val speechStreams: SpeechStreams? = null,
+    /** Writes down what's said in the voice chat while it's said; without it, each recording goes up whole. */
+    private val liveTranscriptions: LiveTranscriptions? = null,
     /** An approval is only taken by voice while the phone is unlocked. */
     private val deviceLock: DeviceLock = DeviceLock.None,
     /** Puts a chained chat's sound on a Bluetooth headset, as a call's is. */
@@ -385,7 +390,11 @@ class VoiceController(
             val opening = async { openSpeech(gateway, profile) }
             val sent = try {
                 // What was said over a reply replaces it: a turn still running stops first.
-                if (cutIn != null) session.stopAndSubmit(transcript).outcome == SendOutcome.Sent else session.send(transcript)
+                if (cutIn != null) {
+                    session.stopAndSubmit(transcript, voiceTurn = true).outcome == SendOutcome.Sent
+                } else {
+                    session.submit(transcript, voiceTurn = true) == SendOutcome.Sent
+                }
             } catch (e: Throwable) {
                 closeUnused(opening)
                 throw e
@@ -636,33 +645,73 @@ class VoiceController(
         }
     }
 
-    /** What's said next, as [Heard] tells. An error on show stays through silence, and goes once words come. */
-    private suspend fun hear(gateway: GatewayUrl, profile: String?, activity: VoiceActivity): Heard {
+    /**
+     * What's said next, as [Heard] tells. An error on show stays through silence, and goes once words come.
+     *
+     * Where the gateway can, it's written down while it's said ([liveTranscriptions]): the socket opens at the first
+     * word, with what led up to it, so a listen nobody speaks in costs nothing, and the words are shown as they come.
+     * Where it can't, or that fails, the recording goes up whole once it's done.
+     */
+    private suspend fun hear(gateway: GatewayUrl, profile: String?, activity: VoiceActivity): Heard = coroutineScope {
         _chat.update { it.copy(phase = VoicePhase.Listening, level = 0f, hearing = false) }
+        val heard = HeardAudio(LIVE_PRE_ROLL_BYTES)
+        var live: Deferred<String?>? = null
         val recording = try {
-            recorder.record(
+            recorder.recordLive(
                 activity,
                 onLevel = { level -> _chat.update { it.copy(level = level) } },
-                onSpeech = { _chat.update { it.copy(hearing = true) } },
+                onSpeech = {
+                    _chat.update { it.copy(hearing = true) }
+                    if (liveTranscriptions != null && live == null) {
+                        heard.start()
+                        live = async { writeDown(liveTranscriptions, gateway, profile, heard) }
+                    }
+                },
+                onAudio = heard::add,
             )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            live?.cancel()
             _chat.update { it.copy(error = e.message ?: "Couldn't use the microphone.") }
-            return Heard.Broken
+            return@coroutineScope Heard.Broken
+        } finally {
+            heard.end()
         }
-        if (!recording.heardSpeech) return Heard.Silence
+        if (!recording.heardSpeech) {
+            live?.cancel()
+            return@coroutineScope Heard.Silence
+        }
         _chat.update { it.copy(phase = VoicePhase.Transcribing, level = 0f, hearing = false) }
-        val transcript = when (val result = audio.transcribe(gateway, recording.bytes, recording.mimeType, profile)) {
+        val transcript = live?.await() ?: when (val result = audio.transcribe(gateway, recording.bytes, recording.mimeType, profile)) {
             is ApiResult.Success -> result.value
             else -> {
                 _chat.update { it.copy(error = result.errorMessage ?: "Couldn't transcribe that.") }
-                return Heard.Unclear
+                return@coroutineScope Heard.Unclear
             }
         }
         // From here, an error on show is this turn's own.
         _chat.update { it.copy(error = null) }
-        return if (transcript.isBlank()) Heard.Silence else Heard.Words(transcript)
+        if (transcript.isBlank()) Heard.Silence else Heard.Words(transcript)
+    }
+
+    /**
+     * Writes down what [heard] hears while it's said: the words once the listen is over, or null where the gateway
+     * couldn't (no socket, no live speech-to-text, a provider error), so the recording goes up whole instead. The
+     * words so far are the caption meanwhile.
+     */
+    private suspend fun writeDown(transcriptions: LiveTranscriptions, gateway: GatewayUrl, profile: String?, heard: HeardAudio): String? {
+        val stream = transcriptions.open(gateway, profile, LIVE_SAMPLE_RATE) { words ->
+            _chat.update {
+                if (it.phase == VoicePhase.Listening || it.phase == VoicePhase.Transcribing) it.copy(caption = words, captionIsVoice = false) else it
+            }
+        } ?: return null
+        try {
+            for (pcm in heard.out) stream.send(pcm)
+            return stream.finish()
+        } finally {
+            withContext(NonCancellable) { stream.close() }
+        }
     }
 
     /** The question or approval Hermes waits on in [chat] that can be answered aloud. */
@@ -1077,6 +1126,8 @@ class VoiceController(
         const val LOCK_CHECK_MS = 1_000L
         const val RETRY_PAUSE_MS = 1_000L
         const val TURN_START_MS = 15_000L
+        /** What a live transcript gets of the moment before the first word was heard: a second of it. */
+        const val LIVE_PRE_ROLL_BYTES = LIVE_SAMPLE_RATE * 2
         const val DICTATION_SILENCE_MS = 3_000L
         const val DICTATION_IDLE_MS = 15_000L
         const val DICTATION_MAX_MS = 120_000L

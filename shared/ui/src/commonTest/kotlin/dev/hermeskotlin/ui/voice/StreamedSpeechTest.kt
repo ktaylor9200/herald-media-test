@@ -313,6 +313,8 @@ class StreamedSpeechTest {
         // What was said over it goes as the next prompt, without listening first.
         setup.socket.submits.first { it.size == 2 }
         assertEquals("Wait, what about tomorrow?", setup.socket.submits.value[1]["params"]!!.jsonObject["text"]!!.jsonPrimitive.content)
+        // Both were said, so both run on the profile's voice chat model.
+        assertTrue(setup.socket.submits.value.all { it["params"]!!.jsonObject["voice_turn"]?.jsonPrimitive?.content == "true" })
         assertEquals(1, recorder.recordings)
         // The finished reply isn't read out after all.
         assertTrue(setup.spoken.isEmpty())

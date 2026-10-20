@@ -10,6 +10,7 @@ import dev.hermeskotlin.core.settings.SettingsStore
 import dev.hermeskotlin.core.voice.AudioApi
 import dev.hermeskotlin.core.voice.DeviceLock
 import dev.hermeskotlin.core.voice.LiveCalls
+import dev.hermeskotlin.core.voice.LiveTranscriptions
 import dev.hermeskotlin.core.voice.SpeechPlayer
 import dev.hermeskotlin.core.voice.CallAudio
 import dev.hermeskotlin.core.voice.VoiceKeepAlive
@@ -68,10 +69,11 @@ class PhoneCallModel(
     liveCalls: LiveCalls,
     deviceLock: DeviceLock,
     callAudio: CallAudio,
+    liveTranscriptions: LiveTranscriptions,
 ) : ViewModel() {
     val voice = VoiceController(
         audio, recorder, player, viewModelScope, appScope, keepAlive,
-        liveCalls = liveCalls, deviceLock = deviceLock, callAudio = callAudio,
+        liveTranscriptions = liveTranscriptions, liveCalls = liveCalls, deviceLock = deviceLock, callAudio = callAudio,
     )
 
     private val _state = MutableStateFlow<PhoneCallState?>(null)

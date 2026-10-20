@@ -188,6 +188,8 @@ class ChatSession(
      *
      * A [voiceLive] prompt is a GPT-Live delegation: the gateway adds a note that the text was spoken and the
      * reply will be, with the recent spoken exchange it refers to (`surface: voice-live`, `voice_context`).
+     * A [voiceTurn] is said in the voice chat: its turn runs on the profile's voice chat model (`voice_turn`,
+     * `auxiliary.voice_chat`; by default the chat's own model, without reasoning), as Desktop's do.
      */
     suspend fun submit(
         text: String,
@@ -195,6 +197,7 @@ class ChatSession(
         display: String? = null,
         queue: Boolean = false,
         voiceLive: VoiceLiveTurn? = null,
+        voiceTurn: Boolean = false,
     ): SendOutcome {
         val trimmed = text.trim()
         if (trimmed.isEmpty() && attachments.isEmpty()) return SendOutcome.NotSent
@@ -247,6 +250,7 @@ class ChatSession(
                         put("surface", "voice-live")
                         if (voiceLive.context.isNotBlank()) put("voice_context", voiceLive.context)
                     }
+                    if (voiceTurn) put("voice_turn", true)
                 },
             ) as? JsonObject
             rowExists = true
@@ -1308,14 +1312,15 @@ class ChatSession(
         attachments: List<OutgoingAttachment> = emptyList(),
         display: String? = null,
         voiceLive: VoiceLiveTurn? = null,
+        voiceTurn: Boolean = false,
     ): StopAndSend {
-        if (!_state.value.running) return StopAndSend(submit(text, attachments, display, voiceLive = voiceLive))
+        if (!_state.value.running) return StopAndSend(submit(text, attachments, display, voiceLive = voiceLive, voiceTurn = voiceTurn))
         val dropped = interruptTurn() ?: run {
             _state.update { it.copy(error = it.error ?: NOT_CONNECTED) }
             return StopAndSend(SendOutcome.NotSent)
         }
         val settled = withTimeoutOrNull(STOP_SETTLE_TIMEOUT_MS) { _state.first { !it.running } } != null
-        return StopAndSend(submit(text, attachments, display, queue = !settled, voiceLive = voiceLive), dropped)
+        return StopAndSend(submit(text, attachments, display, queue = !settled, voiceLive = voiceLive, voiceTurn = voiceTurn), dropped)
     }
 
     /**

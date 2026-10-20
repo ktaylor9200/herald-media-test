@@ -218,6 +218,33 @@ class ChatSessionTest {
         assertNull(typed.param("voice_context"))
     }
 
+    /** Said in the voice chat, the turn runs on the profile's voice chat model, as Desktop's voice turns do. */
+    @Test
+    fun aVoiceChatTurnSaysItWasSpoken() = runTest {
+        val (connection, transport) = setup(
+            backgroundScope,
+            mapOf(
+                "session.create" to """{"session_id":"rt9","stored_session_id":"stored-9","message_count":0,"messages":[],"info":{}}""",
+                "prompt.submit" to """{"status":"streaming"}""",
+            ),
+        )
+        connection.state.first { it is ConnectionState.Connected }
+        val chat = ChatSession(url, null, null, connection, SessionsApi(client()), backgroundScope)
+        chat.start()
+
+        assertEquals(SendOutcome.Sent, chat.submit("What's on today?", voiceTurn = true))
+
+        val submit = transport.awaitSent { it.isCall("prompt.submit") }
+        assertEquals("What's on today?", submit.param("text"))
+        assertEquals("true", submit.param("voice_turn"))
+        // Not a GPT-Live delegation: no note that a voice model paraphrases the reply.
+        assertNull(submit.param("surface"))
+        // A typed prompt isn't one.
+        chat.send("typed")
+        val typed = transport.sent.first { sent -> sent.count { it.isCall("prompt.submit") } == 2 }.last { it.isCall("prompt.submit") }
+        assertNull(typed.param("voice_turn"))
+    }
+
     @Test
     fun aCorrectionMidTurnSplitsTheReplyAroundIt() = runTest {
         val (connection, transport) = setup(
