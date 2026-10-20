@@ -17,7 +17,8 @@ reaches a bot's other chats ("Side chats"), and New chat starts beside the open 
 | `media-viewer` | #1 | File viewer + in-feed media, HTML pages, SVG drawings; also carries the fork-only dev-APK workflow |
 | `read-aloud` | #2 (closed) | Retired 2026-10-20: upstream's Read aloud (v0.12.0, #230) does all it did and more. Kept for history; not merged into `pilot` any more |
 | `side-chats` | #4 | Bots tab: Side chats, Hidden last, New chat beside the open chat, a side chat reopens on launch. Fork only |
-| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
+| `pet-room` | #5 | The last reply's actions leave room for the pet, so Read aloud isn't under it. An upstream bug too; fork only unless the person says |
+| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
 
 All were synced with upstream's **v0.12.0 tag** (c781aca) on 2026-10-20: the release, not `master`, which since has
 Suggested replies through a community server plugin (Next Prompt) the person hasn't decided on. Sync to a release tag
@@ -37,6 +38,7 @@ Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` 
 - Read aloud (retired, superseded by upstream #230): `0272d39`, `8c3daea`.
 - Side chats (fork only): `fe0919b` Hidden below the rooms, `f4942a8` New chat beside the open chat, `a3e3daa` a
   side chat reopens on launch, `868cd03` Side chats.
+- Pet room: `5a11c04` the last reply's actions leave room for the pet (`petSize`, `petRoom`, `LocalPetRoom` in `ChatScreen`).
 - Pilot only: `7a7d6cd` the feed's player and upstream's Read aloud take turns (replaces `a13c92d` and `3dabf4d`).
 
 ## What's built
