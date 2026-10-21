@@ -405,35 +405,53 @@ class VoiceControllerTest {
     /**
      * Hears nothing in its first [quiet] listens, then speech, handing over what it hears as it hears it, as the
      * phone's recorder does: a moment before the first word ([1]), the word's start ([2]), and the rest ([3]).
+     * [endless]: the phone never hears the speaker stop (noise), so the listen goes on until [finish].
      */
-    private class LiveRecorder(private val quiet: Int = 0) : VoiceRecorder {
+    private class LiveRecorder(private val quiet: Int = 0, private val endless: Boolean = false) : VoiceRecorder {
         var listens = 0
+        var finished = 0
+        private var stop = CompletableDeferred<Unit>()
         override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording =
             error("The voice chat listens live.")
 
         override suspend fun recordLive(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit, onAudio: (ByteArray) -> Unit): Recording {
+            stop = CompletableDeferred()
             val speaks = listens++ >= quiet
             onAudio(byteArrayOf(1))
             if (!speaks) return Recording(byteArrayOf(1), "audio/wav", heardSpeech = false)
             onAudio(byteArrayOf(2))
             onSpeech()
             onAudio(byteArrayOf(3))
+            if (endless) stop.await()
             return Recording(byteArrayOf(1, 2, 3), "audio/wav", heardSpeech = true)
         }
 
-        override fun finish() = Unit
+        override fun finish() {
+            finished++
+            stop.complete(Unit)
+        }
     }
 
-    /** Writes down [words] from what it's sent; a gateway that can't when they're null. */
-    private class FakeLiveTranscriptions(private val words: String?) : LiveTranscriptions {
+    /**
+     * Writes down [words] from what it's sent; a gateway that can't when they're null. [hearsTheEnd]: it judges
+     * the speaker has finished once it has the word ([3]).
+     */
+    private class FakeLiveTranscriptions(private val words: String?, private val hearsTheEnd: Boolean = false) : LiveTranscriptions {
         var opened = 0
         val heard = mutableListOf<Byte>()
-        override suspend fun open(url: GatewayUrl, profile: String?, sampleRate: Int, onPartial: (String) -> Unit): LiveTranscription? {
+        override suspend fun open(
+            url: GatewayUrl,
+            profile: String?,
+            sampleRate: Int,
+            onPartial: (String) -> Unit,
+            onEnd: () -> Unit,
+        ): LiveTranscription? {
             opened++
             if (words == null) return null
             return object : LiveTranscription {
                 override suspend fun send(pcm: ByteArray) {
                     heard += pcm.toList()
+                    if (hearsTheEnd && 3.toByte() in pcm) onEnd()
                 }
 
                 override suspend fun finish(): String {
@@ -462,6 +480,20 @@ class VoiceControllerTest {
         assertEquals(listOf<Byte>(1, 2, 3), live.heard)
         // Its words came back over the socket ("stop", which ended the chat): nothing went up whole.
         assertTrue(requests.none { it.url.encodedPath == "/api/audio/transcribe" })
+    }
+
+    /** Noise keeps the phone from hearing the speaker stop; the gateway hears it from the words, and the listen ends. */
+    @Test
+    fun whenTheGatewayHearsTheSpeakerFinishTheListenEnds() = runTest {
+        val live = FakeLiveTranscriptions("Stop.", hearsTheEnd = true)
+        val recorder = LiveRecorder(endless = true)
+        val voice = VoiceController(audio("unused", Requests()), recorder, FakePlayer(), backgroundScope, backgroundScope, liveTranscriptions = live)
+
+        voice.startChat(offlineSession(), gateway, null)
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(1, recorder.finished)
+        assertEquals(listOf<Byte>(1, 2, 3), live.heard)
     }
 
     @Test

@@ -642,6 +642,8 @@ class VoiceController(
      *
      * Where the gateway can, it's written down while it's said ([liveTranscriptions]): the socket opens at the first
      * word, with what led up to it, so a listen nobody speaks in costs nothing, and the words are shown as they come.
+     * A gateway that judges the end of speech from the words ends the listen when it hears the speaker finish, which
+     * noise can't hold open; the phone's own pause, Send now and the time limit still end it too.
      * Where it can't, or that fails, the recording goes up whole once it's done.
      */
     private suspend fun hear(gateway: GatewayUrl, profile: String?, activity: VoiceActivity): Heard = coroutineScope {
@@ -690,14 +692,20 @@ class VoiceController(
     /**
      * Writes down what [heard] hears while it's said: the words once the listen is over, or null where the gateway
      * couldn't (no socket, no live speech-to-text, a provider error), so the recording goes up whole instead. The
-     * words so far are the caption meanwhile.
+     * words so far are the caption meanwhile. When the gateway hears the speaker finish, the recording ends there.
      */
     private suspend fun writeDown(transcriptions: LiveTranscriptions, gateway: GatewayUrl, profile: String?, heard: HeardAudio): String? {
-        val stream = transcriptions.open(gateway, profile, LIVE_SAMPLE_RATE) { words ->
-            _chat.update {
-                if (it.phase == VoicePhase.Listening || it.phase == VoicePhase.Transcribing) it.copy(caption = words, captionIsVoice = false) else it
-            }
-        } ?: return null
+        val stream = transcriptions.open(
+            gateway,
+            profile,
+            LIVE_SAMPLE_RATE,
+            onPartial = { words ->
+                _chat.update {
+                    if (it.phase == VoicePhase.Listening || it.phase == VoicePhase.Transcribing) it.copy(caption = words, captionIsVoice = false) else it
+                }
+            },
+            onEnd = recorder::finish,
+        ) ?: return null
         try {
             for (pcm in heard.out) stream.send(pcm)
             return stream.finish()
