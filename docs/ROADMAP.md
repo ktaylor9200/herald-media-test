@@ -153,6 +153,7 @@ uses. The protocol itself is described in [hermes-protocol-research.md](hermes-p
 - [x] Text size on top of the system font scale
 - [x] Chat background: a photo behind the conversation (frosted under the composer), with how strongly it shows
 - [x] Show or hide reasoning and tool activity in the chat
+- [x] Starting instruction (Settings › Chat): text every new chat started in Herald (chats, threads, the watch, the assistant) tells the agent first, such as "I'm on my phone: keep replies short". It goes into `session.create` as a hidden seed row (`display_kind: "hidden"`), so no client shows it
 - [x] Account (sign out, change gateway) and about (app and gateway versions, update check)
 - [x] Manage several saved gateways: add, rename, remove (signs out of it), choose a primary (listed first, taken over when the gateway in use is removed). Switching keeps each one signed in and reopens where you left off on it; the app opens on the last one used
 
@@ -192,6 +193,8 @@ uses. The protocol itself is described in [hermes-protocol-research.md](hermes-p
 - [x] Background prompts: `/bg <prompt>` (or `/background`) runs it on a fresh agent beside the chat (`prompt.background`), and the answer fills its card when `background.complete` arrives, also for one started on Desktop; a crashed task shows as failed. A gateway without the method runs `/bg` on the slash worker as before
 - [ ] Message reactions (`message.react`)
 - [x] Drafts: each chat keeps its unsent text (stored, survives a restart) and picked files (in memory) when you switch chats; the session list marks it "Draft"
+- [x] Suggested replies: with the community Next Prompt plugin on the gateway (`GET /api/plugins/next-prompt/suggestion`, `POST …/dismiss`), the reply the agent expects next sits as a chip above an empty composer; a tap puts it in the composer without sending, × dismisses it for every client. Settings → Chat → Suggested replies turns it off, shows whether the plugin is there, and offers to install it at a pinned commit (`plugins.manage`); a gateway that only serves new plugins' routes after a restart says so
+- [ ] Suggested replies as quick-reply choices in reply notifications
 - [x] Undo and branch from the composer (`/undo` hands the last prompt back; `/branch` → `session.branch_whole` / `session.branch`)
 - [x] Undo and branch from a message: a ⋯ menu on each message with Copy, Edit last prompt (`/undo`, then the transcript reloads) and Branch from here (`session.branch` with the message's position), each change explained before it happens
 - [x] Regenerate a reply and edit any prompt: one `prompt.submit` with `truncate_before_row_id` (the prompt's stored row), `confirm_truncate` and `confirm_empty_truncate` cuts the transcript and sends in its place; asks before discarding later messages; off mid-turn and for prompts the live agent no longer holds
