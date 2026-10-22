@@ -57,6 +57,8 @@ class SideChatsViewModelTest {
                     val rows = (offset + 1..minOf(offset + limit, chats)).joinToString(",") { """{"id":"$bot-$it","title":"Chat $it","source":"desktop"}""" }
                     respond("""{"sessions":[$rows],"total":$chats}""", listStatus, json)
                 }
+                // A gateway without snapshots, so writes go without an identity (SessionsApiTest covers that).
+                request.url.encodedPath.endsWith("/mutation-snapshot") -> respond("""{"detail":"Not Found"}""", HttpStatusCode.NotFound, json)
                 else -> respond("{}", HttpStatusCode.OK, json)
             }
         }
