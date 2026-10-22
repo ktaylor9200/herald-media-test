@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -111,6 +112,12 @@ fun rememberPetState(chat: ChatState): PetState {
     )
 }
 
+/** The pet's size on screen: Desktop's (frame × scale), kept within what a phone's composer can carry. */
+internal fun petSize(frameW: Int, frameH: Int, scale: Double): DpSize {
+    val height = (frameH * scale).coerceIn(48.0, 96.0)
+    return DpSize((height * frameW / frameH).dp, height.dp)
+}
+
 /** The pet, stepping through its spritesheet row for [state]. */
 @Composable
 fun PetView(sprite: PetSprite, state: PetState, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -129,12 +136,9 @@ fun PetView(sprite: PetSprite, state: PetState, onClick: () -> Unit, modifier: M
             frame = (frame + 1) % frames
         }
     }
-    // Desktop's size (frame × scale), kept within what a phone's composer can carry.
-    val height = (sprite.frameH * sprite.scale).coerceIn(48.0, 96.0)
-    val width = height * sprite.frameW / sprite.frameH
     Canvas(
         modifier
-            .size(width.dp, height.dp)
+            .size(petSize(sprite.frameW, sprite.frameH, sprite.scale))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
     ) {
         drawImage(
