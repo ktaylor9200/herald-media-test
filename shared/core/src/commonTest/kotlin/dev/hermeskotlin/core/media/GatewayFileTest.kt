@@ -123,8 +123,13 @@ class GatewayFileTest {
         listOf("photo.HEIC", "photo.heif", "photo.avif", "favicon.ico", "old.bmp", "scan.tiff", "scan.TIF").forEach {
             assertEquals(GatewayFileKind.Image, GatewayFileKind.of(it), it)
         }
-        // Android has no SVG decoder that Compose can use: it's shown as code.
-        assertEquals(GatewayFileKind.Code, GatewayFileKind.of("logo.svg"))
+        // Drawn by the web view, not decoded as a picture: Android has no SVG decoder that Compose can use.
+        assertEquals(GatewayFileKind.Svg, GatewayFileKind.of("logo.svg"))
+        assertEquals(GatewayFileKind.Svg, GatewayFileKind.of("Chart.SVG"))
+        // Gzipped, it can't be drawn from the bytes the gateway hands over: a file to save or open.
+        assertEquals(GatewayFileKind.Other, GatewayFileKind.of("icon.svgz"))
+        assertTrue(GatewayFileKind.Svg.previewable)
+        assertFalse(GatewayFileKind.Svg.fetchedWhole)
         assertTrue(GatewayFileKind.Code.previewable)
         assertFalse(GatewayFileKind.Other.previewable)
         assertFalse(GatewayFileKind.Image.previewable)
@@ -140,5 +145,31 @@ class GatewayFileTest {
         assertEquals(GatewayFileKind.Text, GatewayFileKind.of("pdf-notes.txt"))
         assertEquals(GatewayFileKind.Other, GatewayFileKind.of("report.pdf.zip"))
         assertTrue(GatewayFileKind.Pdf.previewable)
+    }
+
+    @Test
+    fun webPagesAreRenderedNotShownAsCode() {
+        listOf("report.html", "Dashboard.HTM", "page.xhtml").forEach { assertEquals(GatewayFileKind.Html, GatewayFileKind.of(it), it) }
+        assertEquals(GatewayFileKind.Html, GatewayFile.fromLink("file:///opt/data/out/My%20Chart.html")?.kind)
+        assertTrue(GatewayFileKind.Html.previewable)
+        // Its source is read through the text preview, like code.
+        assertFalse(GatewayFileKind.Html.fetchedWhole)
+    }
+
+    @Test
+    fun audioAndVideoArePlayedFromTheWholeFile() {
+        listOf("reply.mp3", "memo.WAV", "voice.ogg", "voice.opus", "song.flac", "note.m4a", "clip.aac").forEach {
+            assertEquals(GatewayFileKind.Audio, GatewayFileKind.of(it), it)
+        }
+        listOf("demo.mp4", "screen.webm", "take.MOV", "film.mkv", "old.3gp").forEach {
+            assertEquals(GatewayFileKind.Video, GatewayFileKind.of(it), it)
+        }
+        // Containers Android doesn't play stay files to save or open elsewhere.
+        assertEquals(GatewayFileKind.Other, GatewayFileKind.of("old.avi"))
+        listOf(GatewayFileKind.Audio, GatewayFileKind.Video, GatewayFileKind.Pdf).forEach {
+            assertTrue(it.previewable, "$it")
+            assertTrue(it.fetchedWhole, "$it")
+        }
+        assertFalse(GatewayFileKind.Code.fetchedWhole)
     }
 }

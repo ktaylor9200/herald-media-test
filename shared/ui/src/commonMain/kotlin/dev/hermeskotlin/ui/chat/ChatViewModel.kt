@@ -727,9 +727,10 @@ class ChatViewModel(
 
     /**
      * A whole gateway file a reply linked to, through the chat's profile: for Save and Share, and for a
-     * linked picture. Fetched each time, so a file the agent has since rewritten comes back as it is now.
+     * linked picture, and for what the feed plays and draws. Fetched each time, so a file the agent has since
+     * rewritten comes back as it is now.
      */
-    suspend fun downloadFile(file: GatewayFile): FileDownload = downloadFile(file, target)
+    override suspend fun downloadFile(file: GatewayFile): FileDownload = downloadFile(file, target)
 
     internal suspend fun downloadFile(file: GatewayFile, owner: ChatTarget?): FileDownload {
         val gateway = owner?.gateway?.gatewayUrl ?: return FileDownload.Failed("Not connected to a gateway.")

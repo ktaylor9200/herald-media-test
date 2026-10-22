@@ -61,18 +61,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.AudioLines
 import com.composables.icons.lucide.BookOpen
 import com.composables.icons.lucide.Braces
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.Copy
 import com.composables.icons.lucide.Download
+import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.File
 import com.composables.icons.lucide.FileCode
 import com.composables.icons.lucide.FileImage
 import com.composables.icons.lucide.FileSpreadsheet
 import com.composables.icons.lucide.FileText
 import com.composables.icons.lucide.FileWarning
+import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Play
 import com.composables.icons.lucide.Share2
 import com.composables.icons.lucide.WrapText
 import com.composeunstyled.Text
@@ -139,6 +143,9 @@ sealed interface FileLoad {
 
     /** A PDF fetched whole and opened: its pages, drawn as they scroll near. */
     class Pdf internal constructor(internal val pages: PdfPages) : FileLoad
+
+    /** A recording or film fetched whole, to play. */
+    class Media(val bytes: ByteArray) : FileLoad
 }
 
 /** A linked file's whole bytes for Save and Share, or why the gateway wouldn't hand them over. */
@@ -149,13 +156,14 @@ sealed interface FileDownload {
 }
 
 /**
- * A file on the gateway that a reply linked to, opened full screen over the chat: Markdown rendered, JSON
- * indented, CSV and TSV as a table, code and text with line numbers, scrolled both ways, a PDF's pages.
- * Save and Share fetch the whole file; a text preview only reads the start the gateway hands out, while
- * a PDF is fetched whole once and kept for them. A file with nothing to show (an archive, a file the
- * gateway calls binary) gets Save and Share buttons. A link in a Markdown file to another file opens it
- * here, relative ones against the file's folder; Back goes back to the file before, and closes the viewer
- * from the first one.
+ * A file on the gateway that a reply linked to or delivered, opened full screen over the chat: Markdown
+ * rendered, JSON indented, CSV and TSV as a table, code and text with line numbers, scrolled both ways, a
+ * PDF's pages, a web page drawn, a recording or film played. Save and Share fetch the whole file; a text
+ * preview only reads the start the gateway hands out, while a PDF, recording or film is fetched whole once
+ * and kept for them. A file with nothing to show (an archive, a file the gateway calls binary, a format the
+ * phone can't play) gets Save, Share and Open, which hands it to another app. A link in a Markdown file or
+ * a page to another file opens it here, relative ones against the file's folder; Back goes back to the file
+ * before, and closes the viewer from the first one.
  */
 @Composable
 internal fun FileViewer(
@@ -248,7 +256,7 @@ internal fun FileViewerPage(
     var fetched by remember(file) { mutableStateOf<ByteArray?>(null) }
     val result by produceState(preset ?: if (kind.previewable) FileLoad.Loading else null, file, preset) {
         if (preset != null || !kind.previewable) return@produceState
-        if (kind != GatewayFileKind.Pdf) {
+        if (!kind.fetchedWhole) {
             value = load(file)
             return@produceState
         }
@@ -258,6 +266,10 @@ internal fun FileViewerPage(
             return@produceState
         }
         fetched = (got as FileDownload.Ready).bytes
+        if (kind != GatewayFileKind.Pdf) {
+            value = FileLoad.Media(got.bytes)
+            return@produceState
+        }
         // Opened past a Back tap, so an open document is never dropped unclosed; it closes with the page.
         when (val opened = withContext(NonCancellable) { openPdf(got.bytes) }) {
             is PdfOpen.Failed -> value = FileLoad.Failed(opened.message)
@@ -272,8 +284,8 @@ internal fun FileViewerPage(
         }
     }
     val pdf = result as? FileLoad.Pdf
-    // Save and Share wait for the PDF the preview is already fetching, rather than fetch it a second time.
-    val fetching = kind == GatewayFileKind.Pdf && result == FileLoad.Loading
+    // Save and Share wait for the file the preview is already fetching, rather than fetch it a second time.
+    val fetching = kind.fetchedWhole && result == FileLoad.Loading
     val ready = (result as? FileLoad.Ready)?.text?.takeUnless { it.binary }
     var wrap by remember(file) { mutableStateOf(false) }
     var raw by remember(file) { mutableStateOf(false) }
@@ -283,6 +295,8 @@ internal fun FileViewerPage(
     var notice by remember(file) { mutableStateOf<Notice?>(null) }
     val clipboard = LocalClipboard.current
     var copied by remember(file) { mutableStateOf(false) }
+    // Why the phone couldn't play a recording or film, which then gets the buttons a file without a preview has.
+    var playError by remember(file) { mutableStateOf<String?>(null) }
 
     fun withBytes(action: suspend (ByteArray) -> Unit) {
         if (busy || fetching) return
@@ -300,7 +314,11 @@ internal fun FileViewerPage(
         }
     }
 
-    val textual = ready != null && kind != GatewayFileKind.Markdown && kind != GatewayFileKind.Table || ready != null && raw
+    val rendered = kind == GatewayFileKind.Markdown || kind == GatewayFileKind.Table || kind == GatewayFileKind.Html || kind == GatewayFileKind.Svg
+    val textual = ready != null && (!rendered || raw)
+    val save = { withBytes { notice = Notice(actions.save(it, file.name)) } }
+    val share = { withBytes { actions.share(it, file.name) } }
+    val openElsewhere = { withBytes { bytes -> actions.open(bytes, file.name)?.let { notice = Notice(it, error = true) } } }
 
     Column(Modifier.fillMaxSize().background(Theme[colors][background]).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
@@ -350,7 +368,7 @@ internal fun FileViewerPage(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 // The switch takes the room the buttons leave: it fills its width and would push them off screen.
-                if (kind == GatewayFileKind.Markdown || kind == GatewayFileKind.Table || kind == GatewayFileKind.Json) {
+                if (rendered || kind == GatewayFileKind.Json) {
                     SegmentedControl(
                         options = listOf(false, true),
                         selected = raw,
@@ -398,7 +416,8 @@ internal fun FileViewerPage(
         }
 
         notice?.let { NoticeLine(it) }
-        if (ready?.truncated == true) {
+        // A page is drawn from the whole file, so only its source stops short.
+        if (ready?.truncated == true && (kind != GatewayFileKind.Html && kind != GatewayFileKind.Svg || raw)) {
             val shownBytes = remember(ready) { ready.text.encodeToByteArray().size.toLong() }
             Banner(
                 "Showing the first ${formatBytes(shownBytes)} of ${formatBytes(ready.byteSize)}. Save gets the whole file.",
@@ -412,17 +431,42 @@ internal fun FileViewerPage(
                 when {
                     state == FileLoad.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner() }
                     state is FileLoad.Pdf -> PdfDocumentView(state.pages, Modifier.fillMaxSize())
-                    // A PDF that came but won't open (a password, damage) can still go to an app that reads it.
+                    state is FileLoad.Media -> {
+                        val error = playError
+                        if (error == null) {
+                            MediaPlayerView(state.bytes, file.name, video = kind == GatewayFileKind.Video, onError = { playError = it }, modifier = Modifier.fillMaxSize())
+                        } else {
+                            Unavailable(file, kind, error, onSave = save, onShare = share, onOpen = openElsewhere)
+                        }
+                    }
+                    // A file that came but won't open (a PDF with a password, damage) can still go to an app that reads it.
                     state is FileLoad.Failed -> Unavailable(
                         file,
                         kind,
                         state.message,
-                        onSave = { withBytes { notice = Notice(actions.save(it, file.name)) } },
-                        onShare = { withBytes { actions.share(it, file.name) } }.takeIf { fetched != null },
+                        onSave = save,
+                        onShare = share.takeIf { fetched != null },
+                        onOpen = openElsewhere.takeIf { fetched != null },
                     )
-                    ready == null -> Unavailable(file, kind, null, onSave = { withBytes { notice = Notice(actions.save(it, file.name)) } }, onShare = {
-                        withBytes { actions.share(it, file.name) }
-                    })
+                    ready == null -> Unavailable(file, kind, null, onSave = save, onShare = share, onOpen = openElsewhere)
+                    kind == GatewayFileKind.Svg && !raw -> {
+                        val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+                        Box(Modifier.fillMaxSize().clip(shape).background(Color.White).border(1.dp, Theme[colors][stroke], shape)) {
+                            HtmlView(
+                                remember(file.path) { svgPage(pageUrlOf(file.path)) },
+                                file,
+                                allowWeb = false,
+                                fetch = { linked -> (download(linked) as? FileDownload.Ready)?.bytes },
+                                onOpenFile = {},
+                                onBlocked = {},
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                    kind == GatewayFileKind.Html && !raw -> {
+                        val onLink by rememberUpdatedState(onOpenFile)
+                        HtmlPage(file, ready, download, onOpenFile = { onLink(it) }, modifier = Modifier.fillMaxSize())
+                    }
                     else -> {
                         val shown = rememberLinkedPictures(file, pictures, download, onOpenPicture)
                         val onLink by rememberUpdatedState(onOpenFile)
@@ -610,9 +654,16 @@ private fun DataTable(table: DelimitedTable, modifier: Modifier) {
     }
 }
 
-/** No preview: why, and Save / Share so the file can still be had. */
+/** No preview: why, and Save / Share / Open so the file can still be had. */
 @Composable
-private fun Unavailable(file: GatewayFile, kind: GatewayFileKind, error: String?, onSave: () -> Unit, onShare: (() -> Unit)? = null) {
+private fun Unavailable(
+    file: GatewayFile,
+    kind: GatewayFileKind,
+    error: String?,
+    onSave: () -> Unit,
+    onShare: (() -> Unit)? = null,
+    onOpen: (() -> Unit)? = null,
+) {
     Column(
         Modifier.fillMaxSize().padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -633,7 +684,7 @@ private fun Unavailable(file: GatewayFile, kind: GatewayFileKind, error: String?
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            error ?: "Save it to the phone, or share it to an app that opens it.",
+            error ?: "Open it in another app, save it to the phone, or share it.",
             style = Theme[typography][bodySmall],
             color = Theme[colors][textTertiary],
             textAlign = TextAlign.Center,
@@ -641,7 +692,14 @@ private fun Unavailable(file: GatewayFile, kind: GatewayFileKind, error: String?
         if (onShare != null) {
             Spacer(Modifier.height(20.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button("Save", onClick = onSave, leadingIcon = Lucide.Download, size = ButtonSize.Small)
+                if (onOpen != null) Button("Open", onClick = onOpen, leadingIcon = Lucide.ExternalLink, size = ButtonSize.Small)
+                Button(
+                    "Save",
+                    onClick = onSave,
+                    leadingIcon = Lucide.Download,
+                    variant = if (onOpen != null) ButtonVariant.Secondary else ButtonVariant.Primary,
+                    size = ButtonSize.Small,
+                )
                 Button("Share", onClick = onShare, leadingIcon = Lucide.Share2, variant = ButtonVariant.Secondary, size = ButtonSize.Small)
             }
         }
@@ -688,13 +746,19 @@ internal fun kindIcon(kind: GatewayFileKind): ImageVector = when (kind) {
     GatewayFileKind.Table -> Lucide.FileSpreadsheet
     GatewayFileKind.Code -> Lucide.FileCode
     GatewayFileKind.Image -> Lucide.FileImage
+    GatewayFileKind.Html -> Lucide.Globe
+    GatewayFileKind.Svg -> Lucide.FileImage
     GatewayFileKind.Pdf -> Lucide.BookOpen
+    GatewayFileKind.Audio -> Lucide.AudioLines
+    GatewayFileKind.Video -> Lucide.Play
     GatewayFileKind.Other -> Lucide.File
 }
 
 /** The highlighter's name for a file the gateway gave no language for. */
 private fun languageOf(file: GatewayFile): String? = when (file.kind) {
     GatewayFileKind.Json -> "json"
+    GatewayFileKind.Html -> "html"
+    GatewayFileKind.Svg -> "xml"
     GatewayFileKind.Code -> file.extension.ifEmpty { file.name.lowercase() }
     else -> null
 }

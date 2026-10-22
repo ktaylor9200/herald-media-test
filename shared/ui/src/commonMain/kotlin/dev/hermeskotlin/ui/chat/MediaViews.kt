@@ -60,6 +60,8 @@ import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.chat.ReplyMedia
+import dev.hermeskotlin.core.media.GatewayFile
+import dev.hermeskotlin.core.media.GatewayFileKind
 import dev.hermeskotlin.designsystem.bodySmall
 import dev.hermeskotlin.designsystem.caption
 import dev.hermeskotlin.designsystem.colors
@@ -85,6 +87,17 @@ internal val LocalMediaLoader = staticCompositionLocalOf<suspend (String) -> Byt
 internal val LocalOpenImage = staticCompositionLocalOf<(ViewerImage) -> Unit> { {} }
 
 /**
+ * Fetches a whole file on the gateway through the chat's profile, as the viewer does (see
+ * `ChatViewModel.downloadFile`): capped, and not kept, so a recording doesn't sit in the pictures' cache.
+ */
+internal val LocalFileDownload = staticCompositionLocalOf<suspend (GatewayFile) -> FileDownload> {
+    { FileDownload.Failed("Not connected to a gateway.") }
+}
+
+/** Opens a file on the gateway in the file viewer; null where there's no viewer to open (a preview). */
+internal val LocalOpenFile = staticCompositionLocalOf<((GatewayFile) -> Unit)?> { null }
+
+/**
  * What the viewer shows: bytes already at hand, a source to load them from, or its own [fetch] (a picture a
  * reply linked to, read through the chat's profile).
  */
@@ -95,20 +108,37 @@ internal class ViewerImage(
     val fetch: (suspend () -> FileDownload)? = null,
 )
 
-/** The pictures and files a reply delivered, under its text. */
+/**
+ * The pictures and files a reply delivered, under its text: pictures and drawings shown, recordings as
+ * players, films played in place, web pages drawn as on Desktop, other files as cards that open in the viewer.
+ */
 @Composable
 internal fun ReplyMediaList(media: List<ReplyMedia>) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Keyed, so a picture's loaded bytes never show under another one when the list changes.
-        media.forEach { item -> key(item.source) {
-            val file = widgetFile(item)
-            val files = LocalWidgetFiles.current
-            when {
-                file != null && files != null -> InlineWidget(item, file, files)
-                item.isImage -> ReplyImage(item)
-                else -> ReplyFile(item)
+        media.forEach { item ->
+            key(item.source) {
+                val widget = widgetFile(item)
+                val files = LocalWidgetFiles.current
+                val file = remember(item.source) { GatewayFile(item.gatewayPath).takeIf { item.onGateway } }
+                val drawn: @Composable () -> Unit = {
+                    when {
+                        // A `::preview` page is upstream's widget, drawn in Desktop's theme in its own sandbox.
+                        widget != null && files != null -> InlineWidget(item, widget, files)
+                        isSvgSource(item.source) -> ReplySvg(item, file)
+                        item.isImage || file?.kind == GatewayFileKind.Image -> ReplyImage(item)
+                        file == null -> ReplyFile(item)
+                        file.kind == GatewayFileKind.Audio -> ReplyAudio(item, file)
+                        file.kind == GatewayFileKind.Video -> ReplyVideo(item, file)
+                        file.kind == GatewayFileKind.Html -> ReplyPage(item, file)
+                        else -> ReplyFile(item)
+                    }
+                }
+                // Pages, drawings and widgets come folded: a live web view each, drawn only once asked for.
+                val fold = foldOf(item, file, widget = widget != null && files != null)
+                if (fold != null) FoldedItem(item, fold, file, drawn) else drawn()
             }
-        } }
+        }
     }
 }
 
@@ -122,27 +152,7 @@ private fun ReplyImage(item: ReplyMedia) {
     // address came from the image tool, so it loads like on Desktop.
     val remoteHost = remember(item.source) { webHost(item.source).takeUnless { item.generated } }
     var allowed by remember(item.source) { mutableStateOf(remoteHost == null) }
-    if (!allowed) {
-        Row(
-            Modifier
-                .widthIn(max = 420.dp)
-                .fillMaxWidth()
-                .clip(shape)
-                .border(1.dp, Theme[colors][stroke], shape)
-                .background(Theme[colors][surface])
-                .clickable { allowed = true }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            UnstyledIcon(Lucide.Image, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(18.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Picture from $remoteHost", style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
-                Text("Tap to load it from that site", style = Theme[typography][caption], color = Theme[colors][textTertiary])
-            }
-        }
-        return
-    }
+    if (!allowed) return RemotePictureGate(remoteHost ?: "the web", onAllow = { allowed = true })
     // Bumped by a tap on a failed card, to ask again (a dropped link, a file not there yet).
     var attempt by remember(item.source) { mutableIntStateOf(0) }
     var failed by remember(item.source) { mutableStateOf(false) }
@@ -189,21 +199,52 @@ private fun ReplyImage(item: ReplyMedia) {
     }
 }
 
+/** A picture from the web, not loaded until a tap says to. */
+@Composable
+internal fun RemotePictureGate(host: String, onAllow: () -> Unit) {
+    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    Row(
+        Modifier
+            .widthIn(max = 420.dp)
+            .fillMaxWidth()
+            .clip(shape)
+            .border(1.dp, Theme[colors][stroke], shape)
+            .background(Theme[colors][surface])
+            .clickable(onClick = onAllow)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        UnstyledIcon(Lucide.Image, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(18.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Picture from $host", style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
+            Text("Tap to load it from that site", style = Theme[typography][caption], color = Theme[colors][textTertiary])
+        }
+    }
+}
+
 /** The site an `http(s)://` picture would be fetched from; null for the gateway's own files and inline data. */
 internal fun webHost(source: String): String? {
     if (!source.startsWith("http://") && !source.startsWith("https://")) return null
     return source.substringAfter("://").substringBefore('/').substringBefore('?').substringBefore('#').substringAfterLast('@').ifEmpty { null } ?: "the web"
 }
 
-/** A delivered file: its name, with Save and Share. */
+/**
+ * A delivered file: its name and type, with Save and Share. One on the gateway opens in the file viewer
+ * when tapped: a page drawn, a recording played, a document read, without saving it first.
+ */
 @Composable
 internal fun ReplyFile(item: ReplyMedia, download: (suspend () -> FileDownload)? = null) {
     val load = LocalMediaLoader.current
     val actions = rememberMediaActions()
     val notify = LocalNotice.current
+    val openFile = LocalOpenFile.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    val file = remember(item.source) { GatewayFile(item.gatewayPath).takeIf { item.onGateway } }
+    val kind = file?.kind
+    val open: (() -> Unit)? = if (file != null && openFile != null) ({ openFile(file) }) else null
 
     fun withBytes(action: suspend (ByteArray) -> Unit) {
         if (busy) return
@@ -232,14 +273,22 @@ internal fun ReplyFile(item: ReplyMedia, download: (suspend () -> FileDownload)?
             .clip(shape)
             .border(1.dp, Theme[colors][stroke], shape)
             .background(Theme[colors][surface])
+            .clickable(enabled = open != null, onClickLabel = "Open ${item.name}") { open?.invoke() }
             .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        UnstyledIcon(Lucide.File, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(22.dp))
+        UnstyledIcon(kind?.let(::kindIcon) ?: Lucide.File, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f)) {
             Text(item.name, style = Theme[typography][label], color = Theme[colors][textColor], maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(item.name.substringAfterLast('.', "file").uppercase(), style = Theme[typography][caption], color = Theme[colors][textTertiary])
+            Text(
+                listOfNotNull(
+                    item.name.substringAfterLast('.', "file").uppercase(),
+                    kind?.takeIf { it.previewable && open != null }?.let { if (it == GatewayFileKind.Audio || it == GatewayFileKind.Video) "Tap to play" else "Tap to open" },
+                ).joinToString(" · "),
+                style = Theme[typography][caption],
+                color = Theme[colors][textTertiary],
+            )
         }
         if (busy) {
             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Spinner(Modifier.size(18.dp)) }

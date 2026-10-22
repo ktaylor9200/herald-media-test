@@ -1,0 +1,49 @@
+# Fork only, not for upstream: builds "Herald Dev" (installs beside the real app) from each branch push, and
+# attaches the APK to the run as an artifact to download and install on a phone.
+name: Dev APK
+
+on:
+  push:
+    branches-ignore: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    # Pinned like the actions: ubuntu-latest moves to Ubuntu 26 from 2026-10-19.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      # The dev build is signed with the debug key. Keeping the same one between runs lets each APK
+      # install over the last instead of asking to uninstall first.
+      - name: Reuse the debug key
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.android/debug.keystore
+          key: herald-dev-debug-keystore-v1
+
+      - name: Build Herald Dev
+        run: ./gradlew --no-daemon :androidApp:assembleDev
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: herald-dev-${{ github.ref_name }}
+          # One APK unless a releases repo is set (see the ABI splits in androidApp), so take what was built.
+          path: androidApp/build/outputs/apk/dev/*.apk
+          if-no-files-found: error
