@@ -12,6 +12,8 @@ import dev.hermeskotlin.core.settings.DictationEngine
 import dev.hermeskotlin.core.voice.AudioApi
 import dev.hermeskotlin.core.voice.DeviceDictation
 import dev.hermeskotlin.core.voice.DeviceDictationUnavailable
+import dev.hermeskotlin.core.voice.LiveTranscription
+import dev.hermeskotlin.core.voice.LiveTranscriptions
 import dev.hermeskotlin.core.voice.Recording
 import dev.hermeskotlin.core.voice.SpeechPlayer
 import dev.hermeskotlin.core.voice.SpokenAudio
@@ -398,6 +400,81 @@ class VoiceControllerTest {
         assertEquals(5, recorder.recordings)
         // An ending forced by errors says why.
         assertTrue(ended.error != null)
+    }
+
+    /**
+     * Hears nothing in its first [quiet] listens, then speech, handing over what it hears as it hears it, as the
+     * phone's recorder does: a moment before the first word ([1]), the word's start ([2]), and the rest ([3]).
+     */
+    private class LiveRecorder(private val quiet: Int = 0) : VoiceRecorder {
+        var listens = 0
+        override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording =
+            error("The voice chat listens live.")
+
+        override suspend fun recordLive(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit, onAudio: (ByteArray) -> Unit): Recording {
+            val speaks = listens++ >= quiet
+            onAudio(byteArrayOf(1))
+            if (!speaks) return Recording(byteArrayOf(1), "audio/wav", heardSpeech = false)
+            onAudio(byteArrayOf(2))
+            onSpeech()
+            onAudio(byteArrayOf(3))
+            return Recording(byteArrayOf(1, 2, 3), "audio/wav", heardSpeech = true)
+        }
+
+        override fun finish() = Unit
+    }
+
+    /** Writes down [words] from what it's sent; a gateway that can't when they're null. */
+    private class FakeLiveTranscriptions(private val words: String?) : LiveTranscriptions {
+        var opened = 0
+        val heard = mutableListOf<Byte>()
+        override suspend fun open(url: GatewayUrl, profile: String?, sampleRate: Int, onPartial: (String) -> Unit): LiveTranscription? {
+            opened++
+            if (words == null) return null
+            return object : LiveTranscription {
+                override suspend fun send(pcm: ByteArray) {
+                    heard += pcm.toList()
+                }
+
+                override suspend fun finish(): String {
+                    onPartial(words)
+                    return words
+                }
+
+                override suspend fun close() = Unit
+            }
+        }
+    }
+
+    @Test
+    fun theVoiceChatWritesDownWhatsSaidWhileItsSaid() = runTest {
+        val requests = Requests()
+        val live = FakeLiveTranscriptions("Stop.")
+        val recorder = LiveRecorder(quiet = 1)
+        val voice = VoiceController(audio("unused", requests), recorder, FakePlayer(), backgroundScope, backgroundScope, liveTranscriptions = live)
+
+        voice.startChat(offlineSession(), gateway, null)
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(2, recorder.listens)
+        // Only the listen someone spoke in was sent, from the moment before the first word.
+        assertEquals(1, live.opened)
+        assertEquals(listOf<Byte>(1, 2, 3), live.heard)
+        // Its words came back over the socket ("stop", which ended the chat): nothing went up whole.
+        assertTrue(requests.none { it.url.encodedPath == "/api/audio/transcribe" })
+    }
+
+    @Test
+    fun whereTheGatewayCantWriteItDownLiveTheRecordingGoesUpWhole() = runTest {
+        val requests = Requests()
+        val live = FakeLiveTranscriptions(null)
+        val voice = VoiceController(audio("Stop.", requests), LiveRecorder(), FakePlayer(), backgroundScope, backgroundScope, liveTranscriptions = live)
+
+        voice.startChat(offlineSession(), gateway, null)
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(1, live.opened)
+        assertTrue(requests.any { it.url.encodedPath == "/api/audio/transcribe" })
     }
 
     /** Plays each clip until told to finish it, or for good when [holds]; says which clips started and which were cut. */

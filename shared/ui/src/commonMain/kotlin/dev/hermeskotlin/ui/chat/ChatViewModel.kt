@@ -58,6 +58,7 @@ import dev.hermeskotlin.core.voice.AudioApi
 import dev.hermeskotlin.core.voice.LiveCalls
 import dev.hermeskotlin.core.voice.VoiceKeepAlive
 import dev.hermeskotlin.core.voice.SpeechPlayer
+import dev.hermeskotlin.core.voice.LiveTranscriptions
 import dev.hermeskotlin.core.voice.SpeechStreams
 import dev.hermeskotlin.core.voice.VoiceRecorder
 import dev.hermeskotlin.core.voice.DeviceDictation
@@ -207,6 +208,8 @@ class ChatViewModel(
     readAloudVoices: ReadAloudVoices? = null,
     /** An approval is only taken by voice while the phone is unlocked. */
     deviceLock: DeviceLock = DeviceLock.None,
+    /** Writes down what's said in the voice chat while it's said; without it, each recording goes up whole. */
+    liveTranscriptions: LiveTranscriptions? = null,
     /** The Next Prompt plugin's suggestions; none without it. */
     nextPromptApi: NextPromptApi? = null,
 ) : ViewModel(), ChatActions {
@@ -215,6 +218,7 @@ class ChatViewModel(
     val voice = VoiceController(
         audioApi, recorder, player, viewModelScope, appScope, voiceKeepAlive, deviceDictation,
         speechStreams = speechStreams,
+        liveTranscriptions = liveTranscriptions,
         deviceLock = deviceLock,
         liveCalls = liveCalls,
         readAloudVoices = readAloudVoices ?: InMemoryReadAloudVoices(),
