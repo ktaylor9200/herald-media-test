@@ -15,7 +15,8 @@ Third project (2026-10-20, a session of its own): the chained voice chat as fast
 take AgentStack-side Hermes changes. The headset's microphone is done (`voice-headset`); the plan the person chose
 (2026-10-20) is in three steps: (1) Herald alone: voice turns on the profile's voice model, words written down while
 they're said (`voice-stream`); (2) AgentStack: Hermes patches for the end of speech on the server and a voice note,
-and the voice model on the API key (a change brief); (3) Herald acts on the server's end of speech. See "Voice" below.
+and the voice model on the API key (a change brief; live 2026-10-20); (3) Herald acts on the server's end of speech
+(`voice-endpoint`, 2026-10-21). See "Voice" below.
 
 ## Branches and PRs (all inside the fork)
 | Branch | PR | What |
@@ -26,7 +27,8 @@ and the voice model on the API key (a change brief); (3) Herald acts on the serv
 | `pet-room` | #5 | The last reply's actions leave room for the pet, so Read aloud isn't under it. An upstream bug too; fork only unless the person says |
 | `voice-headset` | #6 | Voice chat on a Bluetooth headset (a car's hands-free too) listens on its microphone and speaks in it, as a call. Fork only for now |
 | `voice-stream` | #7 | Voice chat step 1: spoken turns marked `voice_turn` (the profile's voice model), and the microphone streamed to `/api/audio/transcribe-stream` while you talk. Fork only for now |
-| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + `voice-headset` + `voice-stream` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
+| `voice-endpoint` | #8 (onto #7) | Voice chat step 3: a listen ends when the gateway hears the speaker finish (`endpoint`). Built on `voice-stream`; fork only for now |
+| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + `voice-headset` + `voice-stream` + `voice-endpoint` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
 
 All were synced with upstream's **v0.12.0 tag** (c781aca) on 2026-10-20: the release, not `master`, which since has
 Suggested replies through a community server plugin (Next Prompt) the person hasn't decided on. Sync to a release tag
@@ -49,7 +51,8 @@ Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` 
 - Pet room: `5a11c04` the last reply's actions leave room for the pet (`petSize`, `petRoom`, `LocalPetRoom` in `ChatScreen`).
 - Voice: `6efc255` the voice chat on the Bluetooth headset (`CallAudio`, `AndroidCallAudio`), with `0f74a4f` (its
   test build fix); `1b5d5f4` spoken turns run on the voice chat model (`voice_turn`); `8d8daaa` words written down
-  while they're said (`LiveTranscription`, `HeardAudio`, `VoiceRecorder.recordLive`), with `d0b12d6` (a test fix).
+  while they're said (`LiveTranscription`, `HeardAudio`, `VoiceRecorder.recordLive`), with `d0b12d6` (a test fix);
+  `fa6b070` a listen ends on the gateway's end of speech (`TranscriptFrame.End`, `onEnd`).
 - Pilot only: `7a7d6cd` the feed's player and upstream's Read aloud take turns (replaces `a13c92d` and `3dabf4d`).
 
 ## What's built
@@ -152,14 +155,21 @@ first word heard, with the second before it (`HeardAudio`), and streams the rest
 A listen nobody speaks in opens nothing; no live speech-to-text, an error or a dropped socket sends the recording up
 whole as before. The phone still decides the end. Dictation and what's said over a reply are unchanged.
 
-**Step 2** (a change brief for AgentStack, 2026-10-20): Hermes patch 0004 `voice.turn_note` (a per-profile note on
-voice turns), patch 0005 `stt.streaming_end_of_speech` (the socket sends `{"type":"endpoint"}` when the provider
-says the speaker stopped, then `final` without `eos`), and `auxiliary.voice_chat` = Opus 5.5 on `anthropic-bots`
-(the API key), minimum reasoning: the person's choice, as the API key is faster to the first word. The person asked
-for a note with "a little more room" than GPT-Live's brevity.
+**Step 2** (AgentStack, live 2026-10-20 on Vivian, Evelyn and Oliver; their ASSUMPTIONS 204): Hermes patch 0005
+`voice.turn_note` (a per-profile note on voice turns), patch 0006 `stt.streaming_end_of_speech: words`, and
+`auxiliary.voice_chat` = Opus 5.5 on `anthropic-bots` (the API key), effort `low` (its lowest): the person's choice,
+as the API key is faster to the first word. The person asked for a note with "a little more room" than GPT-Live's
+brevity. The end of speech comes from the live transcript's words, not the provider (`gpt-live-transcribe` has no
+turn detection): 600 ms after the words last changed on a finished sentence, 1.5 s when they sound unfinished (a
+comma, a trailing "and", "um"). Then the socket sends `{"type":"endpoint"}`, stops reading audio and sends `final`
+without waiting for `eos`. Only a client that asks (`"endpoint": true` in its first frame) gets it.
 
-**Step 3:** on `endpoint`, Herald stops recording and awaits `final`; the phone's detector, Send now and the cap stay
-as backups. Herald already ignores frame types it doesn't know, so either side can go first.
+**Step 3** (`voice-endpoint`): the first frame asks (`{"sample_rate":16000,"endpoint":true}`); on `endpoint` the
+recording stops (`VoiceRecorder.finish`, as Send now does), no more audio goes up, and the words follow as before.
+The phone's pause (1.25 s), Send now and the 60 s cap still end a listen, whichever comes first; an `endpoint` that
+crosses the phone's own end is ignored. An older gateway ignores the ask. Noise makes no words, so it can't hold a
+listen open. Possible next: once this is proven, lengthen the phone's pause while the gateway judges the end, so a
+pause mid-thought in a quiet room doesn't cut in before the gateway's 1.5 s for unfinished words.
 
 ## Device-tested
 All of it is confirmed on the person's phone:
@@ -247,6 +257,11 @@ until the push brief after the pilot review. Its ntfy calls carry no auth, so it
 - In a voice chat, your words appear as you speak; after you stop, Transcribing is brief (no upload wait).
 - A reply comes faster than before on Evelyn (high reasoning before, none now), and Oliver and Vivian (medium before).
 - Stay silent through a listen: it listens again as before.
+
+**To check on the phone (voice step 3, pilot APK of 2026-10-21):**
+- In the car or a noisy room: a finished sentence ends the listen in about a second, without Send now.
+- Trail off ("and um…"), pause a moment, then go on: the listen stays open (unless the pause passes the phone's 1.25 s).
+- Dictation in the composer is as before (it doesn't use the live socket).
 
 ## Next likely steps
 1. Get device feedback on the pilot APK and fix what comes up on the branch that owns it, then merge into `pilot`.
