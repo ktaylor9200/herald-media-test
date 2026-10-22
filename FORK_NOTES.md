@@ -30,9 +30,14 @@ and the voice model on the API key (a change brief; live 2026-10-20); (3) Herald
 | `voice-endpoint` | #8 (onto #7) | Voice chat step 3: a listen ends when the gateway hears the speaker finish (`endpoint`). Built on `voice-stream`; fork only for now |
 | `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + `voice-headset` + `voice-stream` + `voice-endpoint` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
 
-All were synced with upstream's **v0.12.0 tag** (c781aca) on 2026-10-20: the release, not `master`, which since has
-Suggested replies through a community server plugin (Next Prompt) the person hasn't decided on. Sync to a release tag
-until then (`git merge v0.X.0` on `master`). For the switch to upstream's Read aloud, `pilot` reverted the fork's four
+All were synced with upstream's **v0.12.1 tag** (2f6360a) on 2026-10-22 (v0.12.0, c781aca, on 2026-10-20). Sync to
+release tags (`git merge v0.X.Y` on `master`), not upstream `master`. v0.12.1 brought a starting instruction
+(Settings, a hidden first row in each new chat; empty by default), Branch counting the stored rows, the mutation
+identity on session writes (v0.22.2 doesn't ask for it yet; newer Hermes does), and Suggested replies through the
+community Next Prompt server plugin. **Suggested replies stays inert** (the person's choice, 2026-10-22): it shows
+nothing without the plugin, which isn't on the gateway. Don't use its Install button in Settings: AgentStack reviews
+and pins any server plugin first (as `herald-push`), and switches off one installed from the app. The merge's only
+conflicts were the new `nextPromptApi` beside `callAudio` and `liveTranscriptions` (`ChatViewModel`, `UiModule`). For the switch to upstream's Read aloud, `pilot` reverted the fork's four
 read-aloud commits (`0272d39`, `8c3daea` and the two pilot-only ones) and re-added the turn-taking as `7a7d6cd`.
 
 Since 2026-10-19 (upstream `master` 8861253, its inline `::preview` widgets): upstream's
