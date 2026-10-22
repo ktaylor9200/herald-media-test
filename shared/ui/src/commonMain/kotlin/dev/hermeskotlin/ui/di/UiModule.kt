@@ -52,6 +52,7 @@ val uiModule = module {
             // Only Android says whether the phone is locked.
             deviceLock = getOrNull() ?: DeviceLock.None,
             liveTranscriptions = getOrNull(),
+            nextPromptApi = get(),
         )
     }
     viewModelOf(::SettingsViewModel)
