@@ -17,6 +17,7 @@ class LiveTranscriptionTest {
     @Test
     fun theGatewaysFramesAreRead() {
         assertEquals(TranscriptFrame.Partial("book a"), parseTranscriptFrame("""{"type":"partial","text":"book a"}"""))
+        assertEquals(TranscriptFrame.End, parseTranscriptFrame("""{"type":"endpoint"}"""))
         assertEquals(TranscriptFrame.Final("Book a table."), parseTranscriptFrame("""{"type":"final","transcript":"Book a table.","provider":"openai"}"""))
         assertEquals(TranscriptFrame.Failed("no live STT for the configured provider"), parseTranscriptFrame("""{"type":"error","message":"no live STT for the configured provider"}"""))
         assertNull(parseTranscriptFrame("""{"type":"later"}"""))
@@ -40,8 +41,8 @@ class LiveTranscriptionTest {
 
         assertEquals("Book a table.", stream.finish())
         assertEquals(listOf("book a", "book a table"), partials)
-        // The rate first, then the audio as it came, then the end.
-        assertEquals("""{"sample_rate":16000}""", (outgoing.receive() as Frame.Text).readText())
+        // The rate first, asking to hear when the speaker has finished, then the audio as it came, then the end.
+        assertEquals("""{"sample_rate":16000,"endpoint":true}""", (outgoing.receive() as Frame.Text).readText())
         assertContentEquals(byteArrayOf(1, 2), (outgoing.receive() as Frame.Binary).readBytes())
         assertContentEquals(byteArrayOf(3, 4), (outgoing.receive() as Frame.Binary).readBytes())
         assertEquals("""{"eos":true}""", (outgoing.receive() as Frame.Text).readText())
@@ -63,9 +64,47 @@ class LiveTranscriptionTest {
         stream.send(byteArrayOf(1, 2))
 
         assertNull(stream.finish())
-        assertEquals("""{"sample_rate":16000}""", (outgoing.receive() as Frame.Text).readText())
+        assertEquals("""{"sample_rate":16000,"endpoint":true}""", (outgoing.receive() as Frame.Text).readText())
         // No audio after the error: the end follows the rate.
         assertEquals("""{"eos":true}""", (outgoing.receive() as Frame.Text).readText())
+    }
+
+    /** The gateway hears the speaker finish: the listen is told once, no more audio goes up, and the words follow. */
+    @Test
+    fun theGatewayCanSayTheSpeakerHasFinished() = runTest {
+        val incoming = Channel<Frame>(Channel.UNLIMITED)
+        val outgoing = Channel<Frame>(Channel.UNLIMITED)
+        var ends = 0
+        // Read in the test's own scope, so the end is read before what's sent after it.
+        val stream = KtorLiveTranscription(incoming, outgoing, this, {}, { ends++ }) {}
+
+        stream.begin(16_000)
+        stream.send(byteArrayOf(1, 2))
+        incoming.send(Frame.Text("""{"type":"endpoint"}"""))
+        incoming.send(Frame.Text("""{"type":"endpoint"}"""))
+        testScheduler.advanceUntilIdle()
+        stream.send(byteArrayOf(3, 4))
+        incoming.send(Frame.Text("""{"type":"final","transcript":"Book a table.","provider":"openai"}"""))
+
+        assertEquals("Book a table.", stream.finish())
+        assertEquals(1, ends)
+        assertEquals("""{"sample_rate":16000,"endpoint":true}""", (outgoing.receive() as Frame.Text).readText())
+        assertContentEquals(byteArrayOf(1, 2), (outgoing.receive() as Frame.Binary).readBytes())
+        // Nothing heard after the end goes up; the end of ours is harmless.
+        assertEquals("""{"eos":true}""", (outgoing.receive() as Frame.Text).readText())
+    }
+
+    /** The phone ended the listen first, and the gateway's end crossed it: there's no listen left to end. */
+    @Test
+    fun anEndHeardAfterTheListenIsOverIsLeftAlone() = runTest {
+        val incoming = Channel<Frame>(Channel.UNLIMITED)
+        var ends = 0
+        val stream = KtorLiveTranscription(incoming, Channel(Channel.UNLIMITED), backgroundScope, {}, { ends++ }) {}
+        incoming.send(Frame.Text("""{"type":"endpoint"}"""))
+        incoming.send(Frame.Text("""{"type":"final","transcript":"Book a table.","provider":"openai"}"""))
+
+        assertEquals("Book a table.", stream.finish())
+        assertEquals(0, ends)
     }
 
     @Test

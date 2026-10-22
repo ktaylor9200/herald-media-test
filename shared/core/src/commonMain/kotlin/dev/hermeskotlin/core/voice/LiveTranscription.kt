@@ -50,8 +50,19 @@ interface LiveTranscription {
 
 /** Opens [LiveTranscription]s; null when this gateway can't (an older one, or no socket). */
 fun interface LiveTranscriptions {
-    /** One for PCM at [sampleRate]. [onPartial] gets the words so far, all of them, each time they change. */
-    suspend fun open(url: GatewayUrl, profile: String?, sampleRate: Int, onPartial: (String) -> Unit): LiveTranscription?
+    /**
+     * One for PCM at [sampleRate]. [onPartial] gets the words so far, all of them, each time they change. [onEnd]
+     * fires once if the gateway judges from the words that the speaker has finished (`stt.streaming_end_of_speech`)
+     * before [LiveTranscription.finish] is called, which a gateway without it never does: the listen can stop then,
+     * and [LiveTranscription.finish] has the words.
+     */
+    suspend fun open(
+        url: GatewayUrl,
+        profile: String?,
+        sampleRate: Int,
+        onPartial: (String) -> Unit,
+        onEnd: () -> Unit,
+    ): LiveTranscription?
 }
 
 /**
@@ -60,7 +71,13 @@ fun interface LiveTranscriptions {
  */
 class GatewayLiveTranscriptions(private val client: HttpClient, private val auth: AuthApi) : LiveTranscriptions {
 
-    override suspend fun open(url: GatewayUrl, profile: String?, sampleRate: Int, onPartial: (String) -> Unit): LiveTranscription? {
+    override suspend fun open(
+        url: GatewayUrl,
+        profile: String?,
+        sampleRate: Int,
+        onPartial: (String) -> Unit,
+        onEnd: () -> Unit,
+    ): LiveTranscription? {
         val ticket = (auth.mintWsTicket(url) as? ApiResult.Success)?.value?.ticket ?: return null
         val query = profile?.let { "?profile=" + it.encodeURLParameter() }.orEmpty()
         val session = try {
@@ -72,24 +89,29 @@ class GatewayLiveTranscriptions(private val client: HttpClient, private val auth
         } catch (_: Exception) {
             return null
         }
-        return KtorLiveTranscription(session.incoming, session.outgoing, session, onPartial) { session.close() }
+        return KtorLiveTranscription(session.incoming, session.outgoing, session, onPartial, onEnd) { session.close() }
             .also { it.begin(sampleRate) }
     }
 }
 
 /**
  * [LiveTranscription] over a socket's frames, read in [scope]. A gateway without live speech-to-text answers
- * with an error straight away; from then on nothing more is sent, and [finish] says so.
+ * with an error straight away; from then on nothing more is sent, and [finish] says so. One that has heard the
+ * speaker finish says so too ([onEnd]) and reads no more audio, so none is sent.
  */
 internal class KtorLiveTranscription(
     private val incoming: ReceiveChannel<Frame>,
     private val outgoing: SendChannel<Frame>,
     scope: CoroutineScope,
     private val onPartial: (String) -> Unit,
+    private val onEnd: () -> Unit = {},
     private val closeSocket: suspend () -> Unit,
 ) : LiveTranscription {
     /** The transcript once the gateway has it; null when it couldn't, or the socket went first. */
     private val result = CompletableDeferred<String?>()
+
+    /** Done once no more audio goes up: the gateway heard the speaker finish, or the caller is done. */
+    private val audioOver = CompletableDeferred<Unit>()
 
     init {
         scope.launch {
@@ -98,6 +120,7 @@ internal class KtorLiveTranscription(
                     if (frame !is Frame.Text) continue
                     when (val heard = parseTranscriptFrame(frame.readText())) {
                         is TranscriptFrame.Partial -> onPartial(heard.text)
+                        TranscriptFrame.End -> if (audioOver.complete(Unit)) onEnd()
                         is TranscriptFrame.Final -> {
                             result.complete(heard.transcript)
                             break
@@ -114,14 +137,25 @@ internal class KtorLiveTranscription(
         }
     }
 
-    /** The audio's rate, which the gateway needs before any of it. */
-    internal suspend fun begin(sampleRate: Int) = sendQuietly(Frame.Text(buildJsonObject { put("sample_rate", sampleRate) }.toString()))
+    /**
+     * The audio's rate, which the gateway needs before any of it, and the ask to hear when the speaker has finished
+     * (an older gateway ignores it).
+     */
+    internal suspend fun begin(sampleRate: Int) = sendQuietly(
+        Frame.Text(
+            buildJsonObject {
+                put("sample_rate", sampleRate)
+                put("endpoint", true)
+            }.toString(),
+        ),
+    )
 
     override suspend fun send(pcm: ByteArray) {
-        if (!result.isCompleted) sendQuietly(Frame.Binary(true, pcm))
+        if (!result.isCompleted && !audioOver.isCompleted) sendQuietly(Frame.Binary(true, pcm))
     }
 
     override suspend fun finish(): String? {
+        audioOver.complete(Unit)
         sendQuietly(Frame.Text(buildJsonObject { put("eos", true) }.toString()))
         return try {
             withTimeoutOrNull(FINAL_MS) { result.await() }
@@ -131,6 +165,7 @@ internal class KtorLiveTranscription(
     }
 
     override suspend fun close() {
+        audioOver.complete(Unit)
         try {
             closeSocket()
         } catch (_: Exception) {
@@ -159,17 +194,21 @@ internal sealed interface TranscriptFrame {
     /** All the words so far. */
     data class Partial(val text: String) : TranscriptFrame
 
+    /** The speaker has finished, by the words: the gateway reads no more audio, and the transcript follows. */
+    data object End : TranscriptFrame
+
     data class Final(val transcript: String) : TranscriptFrame
 
     data class Failed(val message: String) : TranscriptFrame
 }
 
-/** `partial`, `final` and `error`; anything else is ignored. */
+/** `partial`, `endpoint`, `final` and `error`; anything else is ignored. */
 internal fun parseTranscriptFrame(text: String): TranscriptFrame? {
     val json = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return null
     fun string(key: String) = (json[key] as? JsonPrimitive)?.contentOrNull
     return when (string("type")) {
         "partial" -> TranscriptFrame.Partial(string("text").orEmpty())
+        "endpoint" -> TranscriptFrame.End
         "final" -> TranscriptFrame.Final(string("transcript").orEmpty())
         "error" -> TranscriptFrame.Failed(string("message").orEmpty())
         else -> null
