@@ -107,6 +107,11 @@ sealed interface ChatMessage {
          * (live events carry no time). Null while it streams.
          */
         val timestamp: Double? = null,
+        /**
+         * Where [text] streamed since the reply's last step begins: commentary sealed beside tool calls and the steps
+         * before end here. The turn's final answer stands in for what follows when it ends ([settledText]).
+         */
+        val streamedFrom: Int = 0,
     ) : ChatMessage
 
     /**

@@ -108,6 +108,85 @@ class ChatReducerTest {
     }
 
     @Test
+    fun aProviderThatDoesNotStreamGetsItsAnswerUnderItsCommentary() {
+        // The Claude subscription: commentary comes whole beside the tool calls, the answer only at the end.
+        val done = ChatState(messages = listOf(ChatMessage.User("u", "look it up"))).apply(
+            event("message.start"),
+            event("message.interim", """{"text":"Looking it up.","already_streamed":false}"""),
+            event("tool.start", """{"tool_id":"t1","name":"web_search"}"""),
+            event("tool.complete", """{"tool_id":"t1","name":"web_search"}"""),
+            event("tool.start", """{"tool_id":"t2","name":"web_search"}"""),
+            event("tool.complete", """{"tool_id":"t2","name":"web_search"}"""),
+            event("message.complete", """{"text":"Three came out this week.","status":"complete"}"""),
+        )
+        assertEquals("Looking it up.\n\nThree came out this week.", assertIs<ChatMessage.Assistant>(done.messages.last()).text)
+    }
+
+    @Test
+    fun aStreamedAnswerAfterToolsShowsAsItStreamed() {
+        val done = ChatState().apply(
+            event("message.start"),
+            event("message.delta", """{"text":"Let me check."}"""),
+            event("tool.start", """{"tool_id":"t1","name":"terminal"}"""),
+            event("message.interim", """{"text":"Let me check.","already_streamed":true}"""),
+            event("tool.complete", """{"tool_id":"t1","name":"terminal"}"""),
+            event("message.delta", """{"text":"\n\nAll "}"""),
+            event("message.delta", """{"text":"good."}"""),
+            event("message.complete", """{"text":"All good.","status":"complete"}"""),
+        )
+        assertEquals("Let me check.\n\nAll good.", assertIs<ChatMessage.Assistant>(done.messages.single()).text)
+    }
+
+    @Test
+    fun aStreamCutShortIsFinishedFromTheFinalText() {
+        val done = ChatState().apply(
+            event("message.start"),
+            event("message.delta", """{"text":"The answer is"}"""),
+            event("message.complete", """{"text":"The answer is 42.","status":"complete"}"""),
+        )
+        assertEquals("The answer is 42.", assertIs<ChatMessage.Assistant>(done.messages.single()).text)
+    }
+
+    @Test
+    fun whatStreamedStaysWhenTheFinalTextTellsItApartUnlessRewritten() {
+        val streamed = ChatState().apply(event("message.start"), event("message.delta", """{"text":"Answer."}"""))
+        val toldApart = streamed.reduce(event("message.complete", """{"text":"<think>hm</think>Answer.","status":"complete"}"""))
+        assertEquals("Answer.", assertIs<ChatMessage.Assistant>(toldApart.messages.single()).text)
+        val rewritten = streamed.reduce(event("message.complete", """{"text":"Better answer.","status":"complete","response_transformed":true}"""))
+        assertEquals("Better answer.", assertIs<ChatMessage.Assistant>(rewritten.messages.single()).text)
+    }
+
+    @Test
+    fun anAnswerAlreadyShownAsCommentaryIsNotRepeated() {
+        val previewed = ChatState().apply(
+            event("message.start"),
+            event("message.interim", """{"text":"Done: the file is saved.","already_streamed":false}"""),
+            event("message.complete", """{"text":"Done: the file is saved.","status":"complete","response_previewed":true}"""),
+        )
+        assertEquals("Done: the file is saved.\n\n", assertIs<ChatMessage.Assistant>(previewed.messages.single()).text)
+        // Repeating the steps before it, the answer adds only what's new.
+        val repeating = ChatState().apply(
+            event("message.start"),
+            event("message.interim", """{"text":"First part.","already_streamed":false}"""),
+            event("tool.start", """{"tool_id":"t1","name":"terminal"}"""),
+            event("message.complete", """{"text":"First part. Second part.","status":"complete"}"""),
+        )
+        assertEquals("First part.\n\nSecond part.", assertIs<ChatMessage.Assistant>(repeating.messages.single()).text)
+    }
+
+    @Test
+    fun aFailedTurnKeepsWhatShowedRatherThanItsErrorText() {
+        val failed = ChatState().apply(
+            event("message.start"),
+            event("message.interim", """{"text":"Looking it up.","already_streamed":false}"""),
+            event("message.complete", """{"text":"Error: the provider refused.","status":"error","error":"refused"}"""),
+        )
+        val reply = assertIs<ChatMessage.Assistant>(failed.messages.single())
+        assertEquals("Looking it up.\n\n", reply.text)
+        assertEquals("refused", reply.error)
+    }
+
+    @Test
     fun emptyInterruptedTurnLeavesNoBubbleButErrorsDo() {
         val interrupted = ChatState().apply(event("message.start"), event("message.complete", """{"status":"interrupted"}"""))
         assertTrue(interrupted.messages.isEmpty())
