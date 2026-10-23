@@ -228,16 +228,26 @@ class AppViewModel(
         _route.value = Route.Chat(newChatTarget(gateway, currentProfile()).copy(draft = draft, cwd = cwd))
     }
 
+    /**
+     * A new chat beside [open], in its profile: from a bot's chat (its Bot Chat or one of its side chats) it's
+     * another chat with that bot, never one in whatever profile the Chats list was last on. From the Chats list's
+     * own chats it's the picked profile, as [newChat]. The header's New chat and `/new` start here.
+     */
+    fun newChatBeside(open: ChatTarget) {
+        val gateway = signedInGateway() ?: return
+        _route.value = Route.Chat(newChatTarget(gateway, open.profile).copy(listedIn = currentProfile()))
+    }
+
     /** Opens [bot]'s conversation [storedSessionId] that isn't its Bot Chat, in the bot's profile. */
     fun openBotSession(bot: Bot, storedSessionId: String, title: String) {
         val gateway = signedInGateway() ?: return
-        _route.value = Route.Chat(ChatTarget(gateway, storedSessionId, title, profile = bot.name))
+        _route.value = Route.Chat(ChatTarget(gateway, storedSessionId, title, profile = bot.name, listedIn = currentProfile()))
     }
 
     /** A new throwaway chat with [bot], apart from its permanent one. */
     fun newBotChat(bot: Bot) {
         val gateway = signedInGateway() ?: return
-        _route.value = Route.Chat(newChatTarget(gateway, bot.name))
+        _route.value = Route.Chat(newChatTarget(gateway, bot.name).copy(listedIn = currentProfile()))
     }
 
     /**
@@ -366,7 +376,8 @@ class AppViewModel(
         val target = when {
             last == null -> newChatTarget(gateway, profile)
             bot != null -> botChatTarget(gateway, last.sessionId, bot, last.botLabel ?: bot).also(::followBotChat)
-            else -> ChatTarget(gateway, last.sessionId, last.title, profile = profile)
+            // One of a bot's other chats reopens in the bot's profile, still listed where the Chats list is.
+            else -> ChatTarget(gateway, last.sessionId, last.title, profile = last.profile ?: profile, listedIn = profile)
         }
         return Route.Chat(target)
     }

@@ -23,6 +23,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Stable
 import dev.hermeskotlin.core.chat.linkFileUris
 import dev.hermeskotlin.core.media.GatewayFile
+import dev.hermeskotlin.core.media.GatewayFileKind
 import dev.hermeskotlin.core.media.LinkPreview
 import dev.hermeskotlin.designsystem.components.LocalFileLinks
 import kotlinx.coroutines.flow.collectLatest
@@ -46,6 +47,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -75,6 +77,7 @@ import dev.hermeskotlin.designsystem.userBubble
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -240,6 +243,7 @@ import dev.hermeskotlin.core.pet.PetSprite
 import dev.hermeskotlin.ui.pet.PetSheet
 import dev.hermeskotlin.ui.pet.PetView
 import dev.hermeskotlin.ui.pet.rememberPetState
+import dev.hermeskotlin.ui.pet.petSize
 import dev.hermeskotlin.ui.voice.DictationState
 import dev.hermeskotlin.ui.voice.ReadAloudState
 import dev.hermeskotlin.ui.voice.VoiceChatState
@@ -359,6 +363,21 @@ fun ChatScreen(
     LaunchedEffect(hasControl) { if (!hasControl) controlOpen = false }
     var viewing by remember { mutableStateOf<ViewerImage?>(null) }
     var previewing by remember { mutableStateOf<GatewayFile?>(null) }
+    // What the feed plays, kept here so the viewer opening over it can stop it.
+    val feedPlayer = rememberFeedPlayer()
+    LaunchedEffect(previewing) { if (previewing != null) feedPlayer.pause() }
+    // One voice at a time: a reply read aloud, a voice chat or dictation (whose microphone would hear it) pauses
+    // what the feed plays, and the feed playing, or a recording or film opened full screen, stops the reading.
+    // Each acts only as it starts, so neither undoes the other.
+    val readingAloud = viewModel.voice.reading.collectAsStateWithLifecycle().value.key
+    val voiceChatOn = viewModel.voice.chat.collectAsStateWithLifecycle().value.phase != VoicePhase.Off
+    val dictating = viewModel.voice.dictation.collectAsStateWithLifecycle().value.recording
+    val feedPlaying = feedPlayer.playback?.playing == true
+    LaunchedEffect(readingAloud, voiceChatOn, dictating) { if (readingAloud != null || voiceChatOn || dictating) feedPlayer.pause() }
+    LaunchedEffect(feedPlaying) { if (feedPlaying) viewModel.stopReading() }
+    LaunchedEffect(previewing) {
+        if (previewing?.kind == GatewayFileKind.Audio || previewing?.kind == GatewayFileKind.Video) viewModel.stopReading()
+    }
     var notice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
         if (notice != null) {
@@ -426,6 +445,7 @@ fun ChatScreen(
         mention?.let { faces.bots.mentionable(it.query, self = target.bot?.name) }.orEmpty()
     }
     ChatView(
+        feedPlayer = feedPlayer,
         // A bot's chat is titled "Bot Chat" on the gateway; the bot's name says more.
         title = target.bot?.label ?: state.title?.takeIf { it.isNotBlank() } ?: target.title ?: "New chat",
         titleFace = LocalBotFaces.current.let { faces ->
@@ -613,6 +633,8 @@ internal fun ChatView(
     /** A tapped link to a file on the gateway. */
     onOpenFile: (GatewayFile) -> Unit = {},
     onNotice: (String) -> Unit,
+    /** Plays the recordings and films in the feed; one of the view's own when not given. */
+    feedPlayer: FeedPlayer? = null,
     /** The chat background from Settings, drawn behind the conversation (and frosted under the composer). */
     wallpaper: ImageBitmap? = null,
     /** The gateway's name, said where Hermes runs: under the title and on the empty chat. */
@@ -625,6 +647,11 @@ internal fun ChatView(
     onDismissOtherChat: (OtherChatEvent) -> Unit = {},
     onNextChat: (() -> Unit)? = null,
 ) {
+    val feed = feedPlayer ?: rememberFeedPlayer()
+    // The pages and drawings shown in this chat; another chat starts with them all folded.
+    val shownItems = remember(state.storedSessionId) { ShownItems() }
+    // The pet stands on the composer while nothing asks for an answer there.
+    val petShown = sprite != null && LocalAppSettings.current.showPet && state.inputRequests.isEmpty()
     Box(
         Modifier
             .fillMaxSize()
@@ -716,13 +743,18 @@ internal fun ChatView(
                     if (state.historyLoaded && state.messages.isNotEmpty()) {
                         CompositionLocalProvider(
                             LocalMediaLoader provides actions::loadMedia,
+                            LocalFileDownload provides actions::downloadFile,
                             LocalWidgetFiles provides widgetFiles,
                             LocalLinkPreviewLoader provides linkPreviewLoader,
                             LocalOpenImage provides onViewImage,
                             LocalFileLinks provides { link -> GatewayFile.fromLink(link)?.let(onOpenFile) },
+                            LocalOpenFile provides onOpenFile,
+                            LocalFeedPlayer provides feed,
+                            LocalShownItems provides shownItems,
                             LocalNotice provides onNotice,
                             LocalSubagents provides SubagentContext(state.subagents, actions::stopSubagent),
                             LocalCommentHost provides commentHost,
+                            LocalPetRoom provides if (petShown && sprite != null) petRoom(petSize(sprite.frameW, sprite.frameH, sprite.scale).width) else 0.dp,
                         ) {
                             Messages(
                                 state.messages,
@@ -837,12 +869,12 @@ internal fun ChatView(
                     )
                 }
                 // The pet sits on the composer's top edge, over the conversation rather than in the dock's height.
-                if (sprite != null && LocalAppSettings.current.showPet && state.inputRequests.isEmpty()) {
+                if (petShown && sprite != null) {
                     PetView(
                         sprite = sprite,
                         state = rememberPetState(state),
                         onClick = onOpenPets,
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = (dockInset - 6.dp).coerceAtLeast(0.dp)),
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = PET_END, bottom = (dockInset - 6.dp).coerceAtLeast(0.dp)),
                     )
                 }
             }
@@ -2132,6 +2164,8 @@ private fun AssistantReply(
                         reading -> ReplyAction(Lucide.Square, "Stop reading", onStopReading, action)
                         speakable && onReadAloud != null -> ReplyAction(Lucide.Volume2, "Read aloud", { onReadAloud(text) }, action)
                     }
+                    // The last reply's row sits under the pet standing on the composer: the others move left, Copy stays on the end.
+                    if (last) LocalPetRoom.current.takeIf { it > 0.dp }?.let { Spacer(Modifier.width(it)) }
                     CopyButton(text, Modifier.trimEndTop(end = 16.dp, top = 4.dp).size(MinTouchTarget))
                 }
             }
@@ -3426,6 +3460,18 @@ private fun ModelPill(
  * Lays the element out [end] and [top] smaller, drawn up and past its end by as much: empty padding inside
  * it stops pushing it away from the edge, while it still takes taps over its whole size.
  */
+/** How far in from the chat's edge the pet stands on the composer. */
+private val PET_END = 28.dp
+
+/** How far in from the chat's edge Copy's touch box reaches on a reply: its 48dp, 16dp of it past the list's padding. */
+private val COPY_REACH = 48.dp
+
+/** Room the last reply leaves before Copy for the pet standing over its actions; 0dp where there's no pet. */
+internal val LocalPetRoom = staticCompositionLocalOf { 0.dp }
+
+/** The room for a pet [petWidth] wide: from where Copy's box ends to where the pet's begins. */
+internal fun petRoom(petWidth: Dp): Dp = (petWidth + PET_END - COPY_REACH).coerceAtLeast(0.dp)
+
 private fun Modifier.trimEndTop(end: Dp, top: Dp) = layout { measurable, constraints ->
     val placeable = measurable.measure(constraints)
     val dy = top.roundToPx()

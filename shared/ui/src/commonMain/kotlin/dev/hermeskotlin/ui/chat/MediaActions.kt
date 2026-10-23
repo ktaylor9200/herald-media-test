@@ -9,6 +9,12 @@ interface MediaActions {
 
     /** Opens the system share sheet for the file. */
     fun share(bytes: ByteArray, name: String)
+
+    /**
+     * Opens the file in another app that views its type (a browser, a player, an office app); returns what
+     * went wrong, or null when an app took it.
+     */
+    suspend fun open(bytes: ByteArray, name: String): String?
 }
 
 @Composable
@@ -31,10 +37,23 @@ internal fun mimeTypeOf(name: String): String = when (name.substringAfterLast('.
     "txt", "log", "md" -> "text/plain"
     "csv" -> "text/csv"
     "html", "htm" -> "text/html"
+    "xhtml" -> "application/xhtml+xml"
     "json" -> "application/json"
     "zip" -> "application/zip"
     "mp3" -> "audio/mpeg"
-    "mp4" -> "video/mp4"
+    "wav" -> "audio/wav"
+    "ogg", "oga" -> "audio/ogg"
+    "opus" -> "audio/opus"
+    "flac" -> "audio/flac"
+    "m4a" -> "audio/mp4"
+    "aac" -> "audio/aac"
+    "amr" -> "audio/amr"
+    "mid", "midi" -> "audio/midi"
+    "mp4", "m4v" -> "video/mp4"
+    "webm" -> "video/webm"
+    "mkv" -> "video/x-matroska"
+    "3gp" -> "video/3gpp"
+    "mov" -> "video/quicktime"
     "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     else -> "application/octet-stream"

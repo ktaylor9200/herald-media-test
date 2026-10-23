@@ -162,6 +162,7 @@ import dev.hermeskotlin.ui.bots.BotsRoster
 import dev.hermeskotlin.ui.bots.BotsUiState
 import dev.hermeskotlin.ui.bots.NeedsYou
 import dev.hermeskotlin.ui.bots.BotsViewModel
+import dev.hermeskotlin.ui.bots.SideChatsViewModel
 import dev.hermeskotlin.core.gateway.SavedGateway
 import dev.hermeskotlin.core.models.displayModelName
 import dev.hermeskotlin.core.profiles.Profile
@@ -265,9 +266,12 @@ fun SessionsSidebar(
     /** A tapped Inbox notification the app passed on: the Inbox opens, at its run; [onInboxLinkTaken] once it has. */
     inboxLink: InboxLink? = null,
     onInboxLinkTaken: (InboxLink) -> Unit = {},
+    /** The open chat's profile: the Bots list's Side chats follow it to its bot. */
+    openProfile: String? = null,
     viewModel: SessionsViewModel = koinViewModel(),
     bots: BotsViewModel = koinViewModel(),
     rooms: RoomsViewModel = koinViewModel(),
+    sideChatsModel: SideChatsViewModel = koinViewModel(),
 ) {
     val state = viewModel.state.collectAsStateWithLifecycle().value
     val mode by bots.mode.collectAsStateWithLifecycle()
@@ -288,6 +292,13 @@ fun SessionsSidebar(
         rooms.setVisible(visible)
     }
     LaunchedEffect(selectedId) { bots.setOpenSession(selectedId) }
+    val sideState by sideChatsModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(gateway) { sideChatsModel.bind(gateway.gatewayUrl) }
+    val botNames = remember(botsState.all) { botsState.all.map { it.name }.toSet() }
+    LaunchedEffect(openProfile, botNames) { sideChatsModel.follow(openProfile, botNames) }
+    // A chat may have started or moved on since the list was read: read it again as the sidebar opens.
+    LaunchedEffect(visible) { if (visible) sideChatsModel.refresh() }
+    val sideBot = sideState.bot?.let { name -> botsState.all.firstOrNull { it.name == name } }
     val connection by viewModel.connectionState.collectAsStateWithLifecycle()
     val user by viewModel.user.collectAsStateWithLifecycle()
     val roster by viewModel.roster.collectAsStateWithLifecycle()
@@ -327,6 +338,9 @@ fun SessionsSidebar(
     var actionTarget by remember { mutableStateOf<SessionSummary?>(null) }
     var renameTarget by remember { mutableStateOf<SessionSummary?>(null) }
     var deleteTarget by remember { mutableStateOf<SessionSummary?>(null) }
+    var sideActionTarget by remember { mutableStateOf<SessionSummary?>(null) }
+    var sideRenameTarget by remember { mutableStateOf<SessionSummary?>(null) }
+    var sideDeleteTarget by remember { mutableStateOf<SessionSummary?>(null) }
     // Row swipes: Recent and search pin (right) and archive (left); Archived unarchives (right) and deletes
     // (left), which asks first, as the actions sheet's Delete does.
     val pinSwipe = { s: SessionSummary ->
@@ -561,6 +575,24 @@ fun SessionsSidebar(
                             onDeleteRoom = rooms::deleteRoom,
                             roomsNotice = roomsState.actionNotice,
                             onDismissRoomsNotice = rooms::dismissActionNotice,
+                            openProfile = openProfile,
+                            sideChats = {
+                                sideBot?.let { bot -> sideChats(
+                                    state = sideState,
+                                    label = bot.label,
+                                    collapsed = settings?.sideChatsCollapsed ?: false,
+                                    selectedId = selectedId,
+                                    statuses = statuses,
+                                    drafts = drafts,
+                                    onToggle = { settingsStore.update { it.copy(sideChatsCollapsed = !it.sideChatsCollapsed) } },
+                                    onNewChat = { onNewBotChat(bot) },
+                                    onOpen = { session -> if (session.id != selectedId) onOpenBotSession(bot, session.id, session.displayTitle) },
+                                    onActions = { sideActionTarget = it },
+                                    onLoadMore = sideChatsModel::loadMore,
+                                    onRetry = sideChatsModel::refresh,
+                                    onDismissNotice = sideChatsModel::dismissNotice,
+                                ) }
+                            },
                         )
                         CreateRoomDialog(
                             visible = newRoomOpen,
@@ -710,7 +742,9 @@ fun SessionsSidebar(
             onDismissMessage = viewModel::dismissMessage,
             onNewChat = {
                 if (searchOpen) closeSearch()
-                onNewChat(state.project?.path.takeIf { state.filter == SessionListFilter.Recent })
+                // On the Bots list, a new chat with the bot whose side chats show.
+                val bot = sideBot?.takeIf { mode == SidebarMode.Bots && !searchOpen && state.filter == SessionListFilter.Recent }
+                if (bot != null) onNewBotChat(bot) else onNewChat(state.project?.path.takeIf { state.filter == SessionListFilter.Recent })
             },
             onAccount = openAccount,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -746,6 +780,23 @@ fun SessionsSidebar(
         viewModel.startFresh(thread) { fresh -> onOpenSession(SessionSummary(fresh.sessionId, title = fresh.title, pinned = true), null) }
     }
     RenameDialog(renameTarget, onDismiss = { renameTarget = null }, onRename = viewModel::rename)
+    SessionActionsSheet(
+        session = sideActionTarget,
+        onDismiss = { sideActionTarget = null },
+        onTogglePinned = sideChatsModel::togglePinned,
+        onRename = { sideRenameTarget = it },
+        onToggleArchived = sideChatsModel::archive,
+        onDelete = { sideDeleteTarget = it },
+    )
+    RenameDialog(sideRenameTarget, onDismiss = { sideRenameTarget = null }, onRename = sideChatsModel::rename)
+    DeleteDialog(
+        sideDeleteTarget,
+        onDismiss = { sideDeleteTarget = null },
+        onDelete = {
+            sideChatsModel.delete(it, rememberedIn = profile)
+            onDeleted(it)
+        },
+    )
     ProjectActionsSheet(
         project = projectActions,
         onDismiss = { projectActions = null },

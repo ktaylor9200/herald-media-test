@@ -10,8 +10,11 @@ import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.storage.InMemoryKeyValueStore
 import dev.hermeskotlin.core.settings.DictationEngine
 import dev.hermeskotlin.core.voice.AudioApi
+import dev.hermeskotlin.core.voice.CallAudio
 import dev.hermeskotlin.core.voice.DeviceDictation
 import dev.hermeskotlin.core.voice.DeviceDictationUnavailable
+import dev.hermeskotlin.core.voice.LiveTranscription
+import dev.hermeskotlin.core.voice.LiveTranscriptions
 import dev.hermeskotlin.core.voice.Recording
 import dev.hermeskotlin.core.voice.SpeechPlayer
 import dev.hermeskotlin.core.voice.SpokenAudio
@@ -398,6 +401,165 @@ class VoiceControllerTest {
         assertEquals(5, recorder.recordings)
         // An ending forced by errors says why.
         assertTrue(ended.error != null)
+    }
+
+    /**
+     * Hears nothing in its first [quiet] listens, then speech, handing over what it hears as it hears it, as the
+     * phone's recorder does: a moment before the first word ([1]), the word's start ([2]), and the rest ([3]).
+     * [endless]: the phone never hears the speaker stop (noise), so the listen goes on until [finish].
+     */
+    private class LiveRecorder(private val quiet: Int = 0, private val endless: Boolean = false) : VoiceRecorder {
+        var listens = 0
+        var finished = 0
+        private var stop = CompletableDeferred<Unit>()
+        override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording =
+            error("The voice chat listens live.")
+
+        override suspend fun recordLive(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit, onAudio: (ByteArray) -> Unit): Recording {
+            stop = CompletableDeferred()
+            val speaks = listens++ >= quiet
+            onAudio(byteArrayOf(1))
+            if (!speaks) return Recording(byteArrayOf(1), "audio/wav", heardSpeech = false)
+            onAudio(byteArrayOf(2))
+            onSpeech()
+            onAudio(byteArrayOf(3))
+            if (endless) stop.await()
+            return Recording(byteArrayOf(1, 2, 3), "audio/wav", heardSpeech = true)
+        }
+
+        override fun finish() {
+            finished++
+            stop.complete(Unit)
+        }
+    }
+
+    /**
+     * Writes down [words] from what it's sent; a gateway that can't when they're null. [hearsTheEnd]: it judges
+     * the speaker has finished once it has the word ([3]).
+     */
+    private class FakeLiveTranscriptions(private val words: String?, private val hearsTheEnd: Boolean = false) : LiveTranscriptions {
+        var opened = 0
+        val heard = mutableListOf<Byte>()
+        override suspend fun open(
+            url: GatewayUrl,
+            profile: String?,
+            sampleRate: Int,
+            onPartial: (String) -> Unit,
+            onEnd: () -> Unit,
+        ): LiveTranscription? {
+            opened++
+            if (words == null) return null
+            return object : LiveTranscription {
+                override suspend fun send(pcm: ByteArray) {
+                    heard += pcm.toList()
+                    if (hearsTheEnd && 3.toByte() in pcm) onEnd()
+                }
+
+                override suspend fun finish(): String {
+                    onPartial(words)
+                    return words
+                }
+
+                override suspend fun close() = Unit
+            }
+        }
+    }
+
+    @Test
+    fun theVoiceChatWritesDownWhatsSaidWhileItsSaid() = runTest {
+        val requests = Requests()
+        val live = FakeLiveTranscriptions("Stop.")
+        val recorder = LiveRecorder(quiet = 1)
+        val voice = VoiceController(audio("unused", requests), recorder, FakePlayer(), backgroundScope, backgroundScope, liveTranscriptions = live)
+
+        voice.startChat(offlineSession(), gateway, null)
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(2, recorder.listens)
+        // Only the listen someone spoke in was sent, from the moment before the first word.
+        assertEquals(1, live.opened)
+        assertEquals(listOf<Byte>(1, 2, 3), live.heard)
+        // Its words came back over the socket ("stop", which ended the chat): nothing went up whole.
+        assertTrue(requests.none { it.url.encodedPath == "/api/audio/transcribe" })
+    }
+
+    /** Noise keeps the phone from hearing the speaker stop; the gateway hears it from the words, and the listen ends. */
+    @Test
+    fun whenTheGatewayHearsTheSpeakerFinishTheListenEnds() = runTest {
+        val live = FakeLiveTranscriptions("Stop.", hearsTheEnd = true)
+        val recorder = LiveRecorder(endless = true)
+        val voice = VoiceController(audio("unused", Requests()), recorder, FakePlayer(), backgroundScope, backgroundScope, liveTranscriptions = live)
+
+        voice.startChat(offlineSession(), gateway, null)
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(1, recorder.finished)
+        assertEquals(listOf<Byte>(1, 2, 3), live.heard)
+    }
+
+    @Test
+    fun whereTheGatewayCantWriteItDownLiveTheRecordingGoesUpWhole() = runTest {
+        val requests = Requests()
+        val live = FakeLiveTranscriptions(null)
+        val voice = VoiceController(audio("Stop.", requests), LiveRecorder(), FakePlayer(), backgroundScope, backgroundScope, liveTranscriptions = live)
+
+        voice.startChat(offlineSession(), gateway, null)
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(1, live.opened)
+        assertTrue(requests.any { it.url.encodedPath == "/api/audio/transcribe" })
+    }
+
+    /** Says when the chat's sound went to the headset and came back, between the listens of [Listening]. */
+    private class FakeCallAudio : CallAudio {
+        val steps = mutableListOf<String>()
+        override suspend fun open() {
+            steps += "open"
+        }
+
+        override fun close() {
+            steps += "close"
+        }
+    }
+
+    /** Hears "stop" once, and puts that in [steps]. */
+    private class Listening(private val steps: MutableList<String>) : VoiceRecorder {
+        override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording {
+            steps += "listen"
+            onSpeech()
+            return Recording(byteArrayOf(1, 2, 3), "audio/wav", heardSpeech = true)
+        }
+
+        override fun finish() = Unit
+    }
+
+    /** On a Bluetooth headset, the chat listens on its microphone from the first word, and gives it back at the end. */
+    @Test
+    fun aVoiceChatIsOnTheHeadsetFromItsFirstListenUntilItEnds() = runTest {
+        val call = FakeCallAudio()
+        val voice = VoiceController(
+            audio("Stop.", Requests()), Listening(call.steps), FakePlayer(), backgroundScope, backgroundScope, callAudio = call,
+        )
+
+        voice.startChat(offlineSession(), gateway, null)
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(listOf("open", "listen", "close"), call.steps)
+    }
+
+    @Test
+    fun endingAVoiceChatGivesTheHeadsetBack() = runTest {
+        val call = FakeCallAudio()
+        val recorder = ScriptedRecorder()
+        val voice = VoiceController(audio("unused", Requests()), recorder, FakePlayer(), backgroundScope, backgroundScope, callAudio = call)
+
+        voice.startChat(offlineSession(), gateway, null)
+        recorder.waiting.await()
+        assertEquals(listOf("open"), call.steps)
+        voice.stopChat()
+
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals(listOf("open", "close"), call.steps)
     }
 
     /** Plays each clip until told to finish it, or for good when [holds]; says which clips started and which were cut. */

@@ -8,6 +8,8 @@ import kotlinx.serialization.Serializable
 /**
  * The stored session the user last had open, so the app can reopen it on launch. When it was a bot's
  * permanent chat, [bot] names the bot's profile and [botLabel] what it goes by, so it reopens as that bot's.
+ * [profile] is the profile a chat is in when that isn't the one it's remembered under: one of a bot's other
+ * chats, opened from the Bots list, is remembered where the Chats list was and reopens in the bot's profile.
  */
 @Serializable
 data class LastChat(
@@ -15,6 +17,7 @@ data class LastChat(
     val title: String? = null,
     val bot: String? = null,
     val botLabel: String? = null,
+    val profile: String? = null,
 )
 
 /**

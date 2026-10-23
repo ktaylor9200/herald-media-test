@@ -56,8 +56,10 @@ import dev.hermeskotlin.ui.pet.PetController
 import dev.hermeskotlin.ui.journey.JourneyController
 import dev.hermeskotlin.core.voice.AudioApi
 import dev.hermeskotlin.core.voice.LiveCalls
+import dev.hermeskotlin.core.voice.CallAudio
 import dev.hermeskotlin.core.voice.VoiceKeepAlive
 import dev.hermeskotlin.core.voice.SpeechPlayer
+import dev.hermeskotlin.core.voice.LiveTranscriptions
 import dev.hermeskotlin.core.voice.SpeechStreams
 import dev.hermeskotlin.core.voice.VoiceRecorder
 import dev.hermeskotlin.core.voice.DeviceDictation
@@ -152,12 +154,23 @@ data class ChatTarget(
     val draft: ComposeDraft? = null,
     val cwd: String? = null,
     val readUpTo: Double? = null,
+    /**
+     * The profile the Chats list was on when this chat opened. A bot's other chats, opened from the Bots list, are
+     * in the bot's [profile] but listed here, so the next launch finds them.
+     */
+    val listedIn: String? = profile,
 ) {
     /**
-     * The profile whose last chat this is, which the next launch reads: a bot's chat counts where the Chats
-     * list was, the launch profile (null) included, not under the bot's own profile.
+     * The profile whose last chat this is, which the next launch reads: a bot's chat, and any other chat with a
+     * bot, counts where the Chats list was, the launch profile (null) included, not under the bot's own profile.
      */
-    val rememberedIn: String? get() = if (bot != null) bot.chatsProfile else profile
+    val rememberedIn: String? get() = if (bot != null) bot.chatsProfile else listedIn
+}
+
+/** What the next launch reopens for [target] once it's the stored session [id]: in its own profile, wherever it's remembered. */
+internal fun lastChatOf(target: ChatTarget, id: String, title: String?): LastChat {
+    val bot = target.bot
+    return LastChat(id, title, bot = bot?.name, botLabel = bot?.label, profile = target.profile.takeIf { bot == null && it != target.rememberedIn })
 }
 
 /**
@@ -207,6 +220,10 @@ class ChatViewModel(
     readAloudVoices: ReadAloudVoices? = null,
     /** An approval is only taken by voice while the phone is unlocked. */
     deviceLock: DeviceLock = DeviceLock.None,
+    /** Puts a voice chat's sound on a Bluetooth headset; where the phone sends it without one. */
+    callAudio: CallAudio = CallAudio.None,
+    /** Writes down what's said in the voice chat while it's said; without it, each recording goes up whole. */
+    liveTranscriptions: LiveTranscriptions? = null,
     /** The Next Prompt plugin's suggestions; none without it. */
     nextPromptApi: NextPromptApi? = null,
 ) : ViewModel(), ChatActions {
@@ -215,9 +232,11 @@ class ChatViewModel(
     val voice = VoiceController(
         audioApi, recorder, player, viewModelScope, appScope, voiceKeepAlive, deviceDictation,
         speechStreams = speechStreams,
+        liveTranscriptions = liveTranscriptions,
         deviceLock = deviceLock,
         liveCalls = liveCalls,
         readAloudVoices = readAloudVoices ?: InMemoryReadAloudVoices(),
+        callAudio = callAudio,
     )
 
     /** The profile's pet and its gallery. */
@@ -355,8 +374,7 @@ class ChatViewModel(
             state
                 .map { chat ->
                     chat.storedSessionId?.takeIf { chat.hasConversation }?.let { id ->
-                        val bot = target?.bot
-                        LastChat(id, chat.title, bot = bot?.name, botLabel = bot?.label)
+                        target?.let { open -> lastChatOf(open, id, chat.title) }
                     }
                 }
                 // Distinct before dropping nulls, so returning to the same chat after a new one saves it again.
@@ -727,9 +745,10 @@ class ChatViewModel(
 
     /**
      * A whole gateway file a reply linked to, through the chat's profile: for Save and Share, and for a
-     * linked picture. Fetched each time, so a file the agent has since rewritten comes back as it is now.
+     * linked picture, and for what the feed plays and draws. Fetched each time, so a file the agent has since
+     * rewritten comes back as it is now.
      */
-    suspend fun downloadFile(file: GatewayFile): FileDownload = downloadFile(file, target)
+    override suspend fun downloadFile(file: GatewayFile): FileDownload = downloadFile(file, target)
 
     internal suspend fun downloadFile(file: GatewayFile, owner: ChatTarget?): FileDownload {
         val gateway = owner?.gateway?.gatewayUrl ?: return FileDownload.Failed("Not connected to a gateway.")
