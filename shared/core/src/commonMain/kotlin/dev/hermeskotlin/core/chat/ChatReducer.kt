@@ -26,8 +26,8 @@ fun ChatState.reduce(event: GatewayEvent, now: Double? = null): ChatState {
         "session.usage" -> copy(usage = SessionUsage.parse(payload?.get("usage") as? JsonObject) ?: usage)
         "message.delta" -> appendText(payload.string("text"))
         "message.interim" ->
-            // Commentary next to tool calls; when already streamed it is in the text already.
-            if (payload.boolean("already_streamed") == true) this else appendText(payload.string("text")?.let { "$it\n\n" })
+            // Commentary next to tool calls; when already streamed it is in the text already. It ends a step either way.
+            (if (payload.boolean("already_streamed") == true) this else appendText(payload.string("text")?.let { "$it\n\n" })).sealStep()
         "reasoning.delta", "reasoning.available" -> payload.string("text")?.let { chunk ->
             withOpenReply { it.copy(reasoning = it.reasoning + chunk) }
         } ?: this
@@ -45,7 +45,8 @@ fun ChatState.reduce(event: GatewayEvent, now: Double? = null): ChatState {
                 running = true,
                 input = ToolDetails.input(payload?.get("args"), payload.string("args_text")),
             ).let { if (it.name == DELEGATE_TOOL) it.copy(tasks = delegatedTasks(payload?.get("args"), null)) else it }
-            withOpenReply { reply -> reply.copy(tools = reply.tools.filterNot { it.id == id } + tool) }
+            // Text before a tool call is that step's; what streams after it is the next one's.
+            withOpenReply { reply -> reply.copy(tools = reply.tools.filterNot { it.id == id } + tool, streamedFrom = reply.text.length) }
                 .copy(running = true, thinkingFrame = null)
         }
         // The model is still writing the call's arguments; say what's coming.
@@ -221,9 +222,12 @@ private fun ChatState.complete(payload: JsonObject?, now: Double?): ChatState {
         ?: if (finalText.isBlank() && error == null && warning == null) return endTurn(messages, finalUsage) else messages.size
     val base = messages.getOrNull(index) as? ChatMessage.Assistant ?: ChatMessage.Assistant(key = "live-$keySeq")
     val reply = base.copy(
-        // Prefer what streamed (it includes interim segments); fall back to the final text for
-        // non-streaming providers or when we joined after the deltas.
-        text = base.text.ifBlank { finalText },
+        // A failed or stopped turn's text is an error or a partial copy: what showed stays when there is any.
+        text = if (outcome == TurnOutcome.Complete) {
+            base.settledText(finalText, transformed = payload.boolean("response_transformed") == true, previewed = payload.boolean("response_previewed") == true)
+        } else {
+            base.text.ifBlank { finalText }
+        },
         reasoning = base.reasoning.ifBlank { finalReasoning },
         tools = base.tools.map { it.copy(running = false) },
         streaming = false,
@@ -243,6 +247,36 @@ private fun ChatState.complete(payload: JsonObject?, now: Double?): ChatState {
         }
     }
     return endTurn(updated, finalUsage).copy(keySeq = keySeq + 1)
+}
+
+/**
+ * The reply's text once its turn has ended. The gateway's final answer stands in for what streamed of the last step
+ * (from [ChatMessage.Assistant.streamedFrom]): a provider that doesn't stream (one Hermes runs as a process, as the
+ * Claude subscription is) sends its commentary whole beside its tool calls and its answer only here, and a stream cut
+ * short sends the rest of it here. The steps before stay as they showed. What streamed stays too when the answer
+ * doesn't carry on from it (told apart, e.g. with reasoning tags the stream took out), unless the gateway rewrote the
+ * answer after streaming it ([transformed]). An answer already shown as commentary ([previewed]) isn't added again.
+ */
+internal fun ChatMessage.Assistant.settledText(answer: String, transformed: Boolean = false, previewed: Boolean = false): String {
+    val final = answer.trim()
+    if (final.isEmpty()) return text
+    val from = streamedFrom.coerceIn(0, text.length)
+    val before = text.substring(0, from).trimEnd()
+    val streamed = text.substring(from).trim()
+    if (streamed.isNotEmpty() && !transformed && !final.startsWith(streamed)) return text
+    if (streamed.isEmpty() && (previewed || (before.isNotEmpty() && before.endsWith(final)))) return text
+    // Some runtimes' answer repeats the steps before it.
+    val rest = if (before.isNotEmpty() && final.startsWith(before)) final.removePrefix(before).trimStart() else final
+    return listOf(before, rest).filter { it.isNotEmpty() }.joinToString("\n\n")
+}
+
+/** Ends the open reply's step: what streams from here on is the next one's. */
+private fun ChatState.sealStep(): ChatState {
+    val index = messages.openReplyIndex()
+    if (index < 0) return this
+    val reply = messages[index] as ChatMessage.Assistant
+    if (reply.streamedFrom == reply.text.length) return this
+    return copy(messages = messages.toMutableList().apply { set(index, reply.copy(streamedFrom = reply.text.length)) })
 }
 
 private fun ChatState.endTurn(messages: List<ChatMessage>, finalUsage: SessionUsage?) = copy(
