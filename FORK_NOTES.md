@@ -28,7 +28,8 @@ and the voice model on the API key (a change brief; live 2026-10-20); (3) Herald
 | `voice-headset` | #6 | Voice chat on a Bluetooth headset (a car's hands-free too) listens on its microphone and speaks in it, as a call. Fork only for now |
 | `voice-stream` | #7 | Voice chat step 1: spoken turns marked `voice_turn` (the profile's voice model), and the microphone streamed to `/api/audio/transcribe-stream` while you talk. Fork only for now |
 | `voice-endpoint` | #8 (onto #7) | Voice chat step 3: a listen ends when the gateway hears the speaker finish (`endpoint`). Built on `voice-stream`; fork only for now |
-| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + `voice-headset` + `voice-stream` + `voice-endpoint` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
+| `final-answer` | #9 | A turn's final answer shows when the provider doesn't stream it (the bots' Claude subscription): it was dropped once commentary beside tool calls had shown, until the chat was reopened. A Herald bug for any non-streaming provider; fork only unless the person says |
+| `pilot` | #3 (draft, never merge) | `media-viewer` + `side-chats` + `pet-room` + `voice-headset` + `voice-stream` + `voice-endpoint` + `final-answer` + one commit so upstream's Read aloud and the feed's player take turns. **Test APKs come from here.** |
 
 All were synced with upstream's **v0.12.1 tag** (2f6360a) on 2026-10-22 (v0.12.0, c781aca, on 2026-10-20). Sync to
 release tags (`git merge v0.X.Y` on `master`), not upstream `master`. v0.12.1 brought a starting instruction
@@ -58,6 +59,8 @@ Feature commits (cherry-pick these to offer upstream; skip the `CI (fork only)` 
   test build fix); `1b5d5f4` spoken turns run on the voice chat model (`voice_turn`); `8d8daaa` words written down
   while they're said (`LiveTranscription`, `HeardAudio`, `VoiceRecorder.recordLive`), with `d0b12d6` (a test fix);
   `fa6b070` a listen ends on the gateway's end of speech (`TranscriptFrame.End`, `onEnd`).
+- Final answer: `378cd47` the final answer stands in for what streamed of the turn's last step (`settledText`,
+  `ChatMessage.Assistant.streamedFrom`), as Hermes's TUI does (`recordMessageComplete`, `finalTail`).
 - Pilot only: `7a7d6cd` the feed's player and upstream's Read aloud take turns (replaces `a13c92d` and `3dabf4d`).
 
 ## What's built
@@ -221,6 +224,11 @@ person's server, server plugins are platform tier: an unreviewed one is switched
 until the push brief after the pilot review. Its ntfy calls carry no auth, so it can't use a login-only ntfy server.
 
 ## Open items and known gaps
+- **The bots' replies don't stream** (2026-10-23): Hermes never streams a provider it runs as a process
+  (`_should_stream`, `agent/turn_api_call.py`: `auth_type: external_process`), which the Claude subscription provider
+  is. A reply arrives whole at the end; commentary beside tool calls comes as `message.interim`. `final-answer` makes
+  the chat show it right; making it stream would take a Hermes change on AgentStack's side (it would also let voice chat
+  start speaking before the whole reply is written).
 - **Sandbox**: WebRTC and a `<link rel=preconnect>`'s DNS lookup still reach the web without Load (no WebView switch
   stops them; a JS shim is bypassed through a fresh iframe). With the folder rule, all a page could send that way is
   what its own folder holds.
