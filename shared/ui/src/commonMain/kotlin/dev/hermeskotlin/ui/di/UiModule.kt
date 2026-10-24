@@ -5,6 +5,7 @@ import dev.hermeskotlin.core.di.platformModule
 import dev.hermeskotlin.core.voice.DeviceLock
 import dev.hermeskotlin.ui.AppViewModel
 import dev.hermeskotlin.ui.bots.BotsViewModel
+import dev.hermeskotlin.ui.bots.SideChatsViewModel
 import dev.hermeskotlin.ui.chat.ChatViewModel
 import dev.hermeskotlin.ui.connect.ConnectViewModel
 import dev.hermeskotlin.ui.sessions.CapabilitiesViewModel
@@ -33,6 +34,7 @@ val uiModule = module {
     // Handed the sidebar's list view model, whose list it reads.
     viewModel { params -> OtherChatsViewModel(params.get(), get(), get(), get()) }
     viewModelOf(::BotsViewModel)
+    viewModelOf(::SideChatsViewModel)
     viewModelOf(::RoomsViewModel)
     viewModelOf(::ScheduledViewModel)
     viewModelOf(::InboxViewModel)

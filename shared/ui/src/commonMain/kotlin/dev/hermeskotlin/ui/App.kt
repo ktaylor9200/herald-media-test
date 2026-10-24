@@ -451,6 +451,7 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                     }
                 },
                 selectedRunning = chatState.running,
+                openProfile = route.target.profile,
                 inboxLink = shownInboxLink,
                 onInboxLinkTaken = { link ->
                     // A newer link may be handed on already: it is left for the sidebar to take.
@@ -477,7 +478,7 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                 else -> ChatScreen(
                     target = route.target,
                     onOpenSidebar = { scope.launch { sidebar.toggle() } },
-                    onNewChat = app::newChat,
+                    onNewChat = { app.newChatBeside(route.target) },
                     onOpenMenu = openSessionId?.let { { menuOpen = true } },
                     onOpenChat = { id, title -> app.openSession(id, title ?: "Untitled session") },
                     onSwitchProfile = app::switchProfile,

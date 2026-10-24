@@ -152,12 +152,23 @@ data class ChatTarget(
     val draft: ComposeDraft? = null,
     val cwd: String? = null,
     val readUpTo: Double? = null,
+    /**
+     * The profile the Chats list was on when this chat opened. A bot's other chats, opened from the Bots list, are
+     * in the bot's [profile] but listed here, so the next launch finds them.
+     */
+    val listedIn: String? = profile,
 ) {
     /**
-     * The profile whose last chat this is, which the next launch reads: a bot's chat counts where the Chats
-     * list was, the launch profile (null) included, not under the bot's own profile.
+     * The profile whose last chat this is, which the next launch reads: a bot's chat, and any other chat with a
+     * bot, counts where the Chats list was, the launch profile (null) included, not under the bot's own profile.
      */
-    val rememberedIn: String? get() = if (bot != null) bot.chatsProfile else profile
+    val rememberedIn: String? get() = if (bot != null) bot.chatsProfile else listedIn
+}
+
+/** What the next launch reopens for [target] once it's the stored session [id]: in its own profile, wherever it's remembered. */
+internal fun lastChatOf(target: ChatTarget, id: String, title: String?): LastChat {
+    val bot = target.bot
+    return LastChat(id, title, bot = bot?.name, botLabel = bot?.label, profile = target.profile.takeIf { bot == null && it != target.rememberedIn })
 }
 
 /**
@@ -355,8 +366,7 @@ class ChatViewModel(
             state
                 .map { chat ->
                     chat.storedSessionId?.takeIf { chat.hasConversation }?.let { id ->
-                        val bot = target?.bot
-                        LastChat(id, chat.title, bot = bot?.name, botLabel = bot?.label)
+                        target?.let { open -> lastChatOf(open, id, chat.title) }
                     }
                 }
                 // Distinct before dropping nulls, so returning to the same chat after a new one saves it again.

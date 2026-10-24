@@ -155,8 +155,8 @@ interface BotActions {
 
 /**
  * The Bots side of the sidebar: what needs the user first, as cards, then a card per bot with its face,
- * name and what it's up to, two to a row, then the rooms. Tapping a bot opens its one permanent chat;
- * a long press offers the rest.
+ * name and what it's up to, two to a row, then the open bot's side chats, the rooms, and the hidden bots, folded,
+ * last. Tapping a bot opens its one permanent chat; a long press offers the rest.
  */
 @Composable
 fun BotsRoster(
@@ -193,6 +193,10 @@ fun BotsRoster(
     /** Why a room's rename or delete didn't work. */
     roomsNotice: String? = null,
     onDismissRoomsNotice: () -> Unit = {},
+    /** The open chat's profile: when it's a bot's other chat, not its Bot Chat, that bot's card is outlined. */
+    openProfile: String? = null,
+    /** The Side chats section, drawn under the bots and above the rooms. */
+    sideChats: LazyListScope.() -> Unit = {},
 ) {
     val heldUp = remember(needsYou) { needsYou.filterIsInstance<NeedsYou.Answer>().associate { it.bot.name to it.waiting } }
     var roomAsk by remember { mutableStateOf<RoomAsk?>(null) }
@@ -213,6 +217,7 @@ fun BotsRoster(
             bot = bot,
             picture = avatars[bot.name]?.takeIf { showsPicture(bot, it) },
             selected = selected,
+            outlined = !selected && openProfile == bot.name,
             unread = bot.name in state.unread,
             thinking = selected && selectedRunning,
             working = bot.isWorking(nowSeconds),
@@ -278,29 +283,7 @@ fun BotsRoster(
                 }
             }
             grid(state.bots, "bots", hidden = false)
-            if (state.hidden.isNotEmpty()) {
-                item(key = "hidden-label") {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = MinTouchTarget)
-                            .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
-                            .clickable(onClickLabel = if (hiddenOpen) "Collapse hidden bots" else "Show hidden bots") { hiddenOpen = !hiddenOpen }
-                            .padding(horizontal = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        UnstyledIcon(
-                            if (hiddenOpen) Lucide.ChevronDown else Lucide.ChevronRight,
-                            contentDescription = null,
-                            tint = Theme[colors][textTertiary],
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Text("Hidden ${state.hidden.size}", style = Theme[typography][caption], color = Theme[colors][textTertiary])
-                    }
-                }
-                if (hiddenOpen) grid(state.hidden, "hidden", hidden = true)
-            }
+            sideChats()
             // Hosted rooms when the gateway runs them, and Desktop's own read-only copies beside them.
             if (roomsAvailable || desktopRooms.isNotEmpty()) {
                 item(key = "rooms-label") {
@@ -335,6 +318,31 @@ fun BotsRoster(
                         DesktopRoomRow(room, roomFaces, onClick = { onOpenDesktopRoom(room) })
                     }
                 }
+            }
+            // Hidden bots last, below the rooms: they keep working, but needn't be in the way.
+            if (state.hidden.isNotEmpty()) {
+                item(key = "hidden-label") {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp)
+                            .heightIn(min = MinTouchTarget)
+                            .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+                            .clickable(onClickLabel = if (hiddenOpen) "Collapse hidden bots" else "Show hidden bots") { hiddenOpen = !hiddenOpen }
+                            .padding(horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        UnstyledIcon(
+                            if (hiddenOpen) Lucide.ChevronDown else Lucide.ChevronRight,
+                            contentDescription = null,
+                            tint = Theme[colors][textTertiary],
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text("Hidden ${state.hidden.size}", style = Theme[typography][caption], color = Theme[colors][textTertiary])
+                    }
+                }
+                if (hiddenOpen) grid(state.hidden, "hidden", hidden = true)
             }
         }
         state.notice?.let { message ->
@@ -396,6 +404,8 @@ private fun BotCard(
     bot: Bot,
     picture: ByteArray?,
     selected: Boolean,
+    /** One of its other chats is open: an accent edge, without the fill of its Bot Chat being open. */
+    outlined: Boolean,
     unread: Boolean,
     thinking: Boolean,
     working: Boolean,
@@ -459,7 +469,7 @@ private fun BotCard(
                 .fillMaxSize()
                 .clip(shape)
                 .background(if (selected) Theme[colors][accentSoft] else Theme[colors][surface])
-                .border(1.dp, if (selected) Theme[colors][accentText].copy(alpha = 0.5f) else Theme[colors][stroke], shape)
+                .border(1.dp, if (selected || outlined) Theme[colors][accentText].copy(alpha = 0.5f) else Theme[colors][stroke], shape)
                 .combinedClickable(
                     onClick = { actions.open(bot) },
                     onClickLabel = "Open ${bot.label}'s chat",

@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui
 
+import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
 import dev.hermeskotlin.core.bots.BotChatBackend
@@ -138,6 +139,49 @@ class AppViewModelTest {
         val chat = viewModel().awaitChat(work)
 
         assertEquals("s1", chat.target.storedSessionId)
+    }
+
+    @Test
+    fun aNewChatFromABotsChatIsWithThatBotWhateverTheChatsListIsOn() = runTest {
+        gateways.save(home)
+        signedIn(home)
+        ProfileStore(store).set(home.gatewayUrl, "work")
+        val vm = viewModel()
+        vm.awaitChat(home)
+        val vivian = Bot(name = "vivian", displayName = "Vivian")
+
+        // From the bot's own chat, and from one of its side chats: another chat with Vivian.
+        vm.openBotChat(vivian, "bot-chat")
+        vm.newChatBeside(vm.awaitChat(home).target)
+        val fromBotChat = vm.awaitChat(home).target
+        assertEquals("vivian", fromBotChat.profile)
+        assertNull(fromBotChat.storedSessionId)
+        // A plain chat in her profile, not her one permanent chat.
+        assertNull(fromBotChat.bot)
+
+        vm.openBotSession(vivian, "side-1", "Trip plans")
+        vm.newChatBeside(vm.awaitChat(home).target)
+        assertEquals("vivian", vm.awaitChat(home).target.profile)
+
+        // From a chat in the Chats list: the profile it's on, as before.
+        vm.openSession("s1", "Report")
+        vm.newChatBeside(vm.awaitChat(home).target)
+        assertEquals("work", vm.awaitChat(home).target.profile)
+    }
+
+    @Test
+    fun aBotsOtherChatLeftOpenReopensInTheBotsProfile() = runTest {
+        gateways.save(home)
+        signedIn(home)
+        ProfileStore(store).set(home.gatewayUrl, "work")
+        lastChats.set(home.gatewayUrl, LastChat("side-1", "Trip plans", profile = "vivian"), "work")
+
+        val chat = viewModel().awaitChat(home).target
+
+        assertEquals("side-1", chat.storedSessionId)
+        assertEquals("vivian", chat.profile)
+        // Still remembered where the Chats list is, so leaving it there keeps it for the next launch too.
+        assertEquals("work", chat.rememberedIn)
     }
 
     @Test
